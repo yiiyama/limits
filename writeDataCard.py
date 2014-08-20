@@ -1,23 +1,4 @@
-import sys
-import math
-
 import ROOT
-
-class Channel(object):
-    def __init__(self, name, sourceName, histoName, lepton, datasetName, x):
-        self.name = name
-        self.sourceName = sourceName
-        self.histoName = histoName
-        self.lepton = lepton
-        self.datasetName = datasetName
-        self.x = x
-
-        self.observed = 0
-        self.processes = {}
-
-    def addProcess(self,  process):
-        self.processes[process.name] = process
-
 
 class Process(object):
     def __init__(self, name, channel, rate, count = 0, signal = False):
@@ -27,56 +8,62 @@ class Process(object):
         self.count = count
         self.signal = signal
 
- 
-def setupFromHistograms(pointName):
 
-    def getBinContent(source, bin, plotName, rawPlotName = ''):
-        hist = source.Get(plotName)
-        rate = hist.GetBinContent(bin) * hist.GetXaxis().GetBinWidth(bin)
-        if bin == hist.GetNbinsX() - 1:
-            rate += hist.GetBinContent(bin + 1)
+class Channel(object):
+    def __init__(self, histoName, lepton, datasetName, xmin, xmax = 8000.):
+        self.source = None
+        self.histoName = histoName
+        self.lepton = lepton
+        self.datasetName = datasetName
+        self.xmin = xmin
+        self.xmax = xmax
 
-        if not rawPlotName: return rate, 0
+        self.observed = 0
+        self.processes = {}
 
-        hist = source.Get(rawPlotName)
-        count = hist.GetBinContent(bin)
-        if bin == hist.GetNbinsX() - 1:
-            count += hist.GetBinContent(bin + 1)
-    
-        return rate, int(count)
+    def addProcess(self, name, rate, count = 0, signal = False):
+        self.processes[name] = Process(name, self, rate, count, signal)
+
+    def setProcess(self, name, rate, count = 0, signal = False):
+        process = self.processes[name]
+        process.rate = rate
+        process.count = count
+        process.signal = signal
 
 
-    elSourceName = '/afs/cern.ch/user/y/yiiyama/output/GammaL/main/FixedScalesE.root'
-    muSourceName = '/afs/cern.ch/user/y/yiiyama/output/GammaL/main/FixedScalesM.root'
+def getBinContent(hist, xmin, xmax, rawHist = None):
 
-    lowPtPlot = 'MetMt100Pt4080'
-    highPtPlot = 'MetMt100Pt80'
+    iBin = hist.GetXaxis().FindFixBin(xmin)
+    rate = 0.
+    while hist.GetXaxis().GetBinLowEdge(iBin) < xmax:
+        if iBin == hist.GetNbinsX():
+            rate += hist.GetBinContent(iBin)
+            break
+        else:
+            rate += hist.GetBinContent(iBin) * hist.GetXaxis().GetBinWidth(iBin)
+            iBin += 1
 
-    channels = [
-        Channel('el120LowPt', elSourceName, lowPtPlot, 'Electron', 'DataE', 120.),
-        Channel('el200LowPt', elSourceName, lowPtPlot, 'Electron', 'DataE', 200.),
-        Channel('el300LowPt', elSourceName, lowPtPlot, 'Electron', 'DataE', 300.),
-        Channel('mu120LowPt', muSourceName, lowPtPlot, 'Muon', 'DataM', 120.),
-        Channel('mu200LowPt', muSourceName, lowPtPlot, 'Muon', 'DataM', 200.),
-        Channel('mu300LowPt', muSourceName, lowPtPlot, 'Muon', 'DataM', 300.),
-        Channel('el120HighPt', elSourceName, highPtPlot, 'Electron', 'DataE', 120.),
-        Channel('el200HighPt', elSourceName, highPtPlot, 'Electron', 'DataE', 200.),
-        Channel('el300HighPt', elSourceName, highPtPlot, 'Electron', 'DataE', 300.),
-        Channel('mu120HighPt', muSourceName, highPtPlot, 'Muon', 'DataM', 120.),
-        Channel('mu200HighPt', muSourceName, highPtPlot, 'Muon', 'DataM', 200.),
-        Channel('mu300HighPt', muSourceName, highPtPlot, 'Muon', 'DataM', 300.)
-    ]
+    if rawHist is None: return rate
+
+    iBin = rawHist.GetXaxis().FindFixBin(xmin)
+    count = 0.
+    while rawHist.GetXaxis().GetBinLowEdge(iBin) < xmax:
+        count += rawHist.GetBinContent(iBin)
+        if iBin == rawHist.GetNbinsX():
+            break
+        iBin += 1
+
+    return rate, int(count)
+
+        
+def setupChannels(channels):
 
     bkgNames = ['EGFake', 'JGFake', 'JLFake', 'VGamma', 'EWK']
+    bkgRates = dict([(proc, 0.) for proc in bkgNames])
 
-    signalSource = ROOT.TFile.Open('/tmp/yiiyama/countSignal/plots/' + pointName + '.root')
-
-    for ch in channels:
-        source = ROOT.TFile.Open(ch.sourceName)
-
-        bin = source.Get('groups/' + ch.histoName + '/' + ch.histoName + '_Observed').GetXaxis().FindFixBin(ch.x)
-
-        ch.observed = int(getBinContent(source, bin, 'groups/' + ch.histoName + '/' + ch.histoName + '_Observed')[0])
+    for ch in channels.values():
+        histName = 'groups/' + ch.histoName + '/' + ch.histoName + '_Observed'
+        ch.observed = int(getBinContent(ch.source.Get(histName), ch.xmin, ch.xmax))
     
         for proc in bkgNames:
             rawPlotName = 'components/' + ch.histoName + '/' + ch.histoName + '_' + ch.datasetName
@@ -87,54 +74,56 @@ def setupFromHistograms(pointName):
             elif proc == 'JLFake':
                 rawPlotName += '_PhotonAndFake' + ch.lepton + '_Raw'
             else:
-                rawPlotName = ''
+                rawPlotName += '_PhotonAnd' + ch.lepton + '_Raw'
 
-            rate, count = getBinContent(source, bin, 'groups/' + ch.histoName + '/' + ch.histoName + '_' + proc, rawPlotName)
+            histName = 'groups/' + ch.histoName + '/' + ch.histoName + '_' + proc
+            rate, count = getBinContent(ch.source.Get(histName), ch.xmin, ch.xmax, ch.source.Get(rawPlotName))
+                
             if rate < 0.: rate = 0.
 
-            ch.addProcess(Process(proc, ch, rate, count = count))
+            ch.addProcess(proc, rate, count = count)
 
-        rate, count = getBinContent(signalSource, bin, ch.lepton + '/groups/' + ch.histoName + '/' + ch.histoName + '_' + pointName, ch.lepton + '/components/' + ch.histoName + '/' + ch.histoName + '_' + pointName + '_PhotonAnd' + ch.lepton + '_Raw')
-        if rate < 0.: rate = 0.
-        ch.addProcess(Process('signal', ch, rate, count = count, signal = True))
+            bkgRates[proc] += rate
 
-        source.Close()
+        ch.addProcess('signal', 0., 0, signal = True)
 
-    signalSource.Close()
+    for proc, rate in bkgRates.items():
+        if rate != 0.: continue
+        for ch in channels.values():
+            ch.processes.pop(proc)
 
-    chList = dict([(ch.name, ch) for ch in channels])
 
-    return chList
+def boundVal(val, bound = 1.):
+    if val > bound: return bound - 0.001
+    if val < -bound: return -bound + 0.001
+    return val
 
 
 def getNuisances(channels):
 
     nuisances = {
         'lumi': {},
+        'effcorr': {},
         'ewkxsec': {},
         'vgscale_Electron': {},
         'vgscale_Muon': {},
-        'effscale': {}
+        'vgshape': {},
+        'jes': {}
     }
 
-    for channel in channels.values():
-        nuisances['lumi'][channel.processes['EWK']] = 0.026
-        nuisances['lumi'][channel.processes['signal']] = 0.026
+    for ch in channels.values():
+        nuisances['lumi'][ch.processes['EWK']] = 0.026
+        nuisances['lumi'][ch.processes['signal']] = 0.026
 
-        nuisances['ewkxsec'][channel.processes['EWK']] = 0.5
+        nuisances['effcorr'][ch.processes['EWK']] = 0.08
+        nuisances['effcorr'][ch.processes['signal']] = 0.08
 
-        source = ROOT.TFile.Open(channel.sourceName)
-        scaleGr = source.Get('TemplateFitError/VGamma')
-        nuisances['vgscale_' + channel.lepton][channel.processes['VGamma']] = scaleGr.GetErrorY(0) / scaleGr.GetY()[0]
-        source.Close()
-
-        nuisances['effscale'][channel.processes['EWK']] = 0.1
-        nuisances['effscale'][channel.processes['signal']] = 0.1
+        nuisances['ewkxsec'][ch.processes['EWK']] = 0.5
 
     return nuisances
 
 
-def writeDataCard(channels, nuisances, cardName):
+def writeDataCard(channels, nuisances, cardName, allowZeroSignal = False):
 
     HLINE = '----------------------------------------'
 
@@ -162,21 +151,24 @@ def writeDataCard(channels, nuisances, cardName):
                 line[iW] = form % line[iW]
 
     bkgNames = []
-    for channel in channels.values():
-        names = set([name for name, process in channel.processes.items() if not process.signal])
+    for ch in channels.values():
+        names = set([name for name, process in ch.processes.items() if not process.signal])
         if len(bkgNames) == 0:
             bkgNames = sorted(list(names))
             continue
         elif len(set(bkgNames) - names) or len(names - set(bkgNames)):
             raise RuntimeError('Background names do not match')
 
-    channelNames = sorted(channels.keys())
+    if allowZeroSignal:
+        channelNames = sorted(channels.keys())
+    else:
+        channelNames = sorted([name for name, channel in channels.items() if channel.processes['signal'].rate > 0.])
 
     nuisanceNames = sorted(nuisances.keys())
 
     lines = []
 
-    lines.append(['imax', str(len(channels))])
+    lines.append(['imax', str(len(channelNames))])
     lines.append(['jmax', str(len(bkgNames))])
     lines.append(['kmax'])
 
@@ -205,12 +197,12 @@ def writeDataCard(channels, nuisances, cardName):
         binLine += ([ch] * (len(channel.processes)))
         procNameLine.append('signal')
         procIDLine.append('0')
-        rateLine.append('%.3f' % channel.processes['signal'].rate)
+        rateLine.append('%.3e' % channel.processes['signal'].rate)
         bkgID = 1
         for proc in bkgNames:
             procNameLine.append(proc)
             procIDLine.append(str(bkgID))
-            rateLine.append('%.3f' % channel.processes[proc].rate)
+            rateLine.append('%.3e' % channel.processes[proc].rate)
             bkgID += 1
 
     lines.append(binLine)
@@ -231,7 +223,7 @@ def writeDataCard(channels, nuisances, cardName):
                 process = channel.processes[proc]
                 try:
                     val = 1. + nuisance[process]
-                    line.append('%.3f' % val)
+                    line.append('%.3e' % val)
                 except KeyError:
                     line.append('-')
 
@@ -242,6 +234,8 @@ def writeDataCard(channels, nuisances, cardName):
         channel = channels[ch]
         for proc in ['signal'] + bkgNames:
             process = channel.processes[proc]
+            if process.count == 0: continue
+
             line = [ch + '_' + proc + ' gmN ' + str(process.count)]
             for chproc in [(c, p) for c in channelNames for p in ['signal'] + bkgNames]:
                 if chproc == (ch, proc):
@@ -270,13 +264,151 @@ def writeDataCard(channels, nuisances, cardName):
 
 if __name__ == '__main__':
 
-    pointName = sys.argv[1]
-    if len(sys.argv) == 3:
-        suffix = sys.argv[2]
-    else:
-        suffix = ''
+    import sys
+    import pickle
+    from optparse import OptionParser
 
-    channels = setupFromHistograms(pointName)
+    parser = OptionParser(usage = 'Usage: writeDataCard.py [options] outputName')
+    parser.add_option('-d', '--directory', dest = 'outputDir', default = '/afs/cern.ch/user/y/yiiyama/work/datacards', help = 'output directory')
+
+    options, args = parser.parse_args()
+
+    if len(args) != 1:
+        parser.print_usage()
+        sys.exit(1)
+
+    outputName = args[0]
+    if not outputName.endswith('.pkl'):
+        print 'Output name must end with .pkl'
+        sys.exit(1)
+
+    # setup background and observed
+
+    OUTPUTDIR = '/afs/cern.ch/user/y/yiiyama/output/GammaL/main'
+    
+    lowHtLowPtPlot = 'MetHighMtLowHtLowPhotonPt'
+    highHtLowPtPlot = 'MetHighMtHighHtLowPhotonPt'
+    noJetHighPtPlot = 'MetHighMtNoJetHighPhotonPt'
+    midHtHighPtPlot = 'MetHighMtMidHtHighPhotonPt'
+    highHtHighPtPlot = 'MetHighMtHighHtHighPhotonPt'
+    
+    channels = {
+        'el120LowHtLowPt': Channel(lowHtLowPtPlot, 'Electron', 'DataE', 120., 200.),
+        'el200LowHtLowPt': Channel(lowHtLowPtPlot, 'Electron', 'DataE', 200.),
+        'mu120LowHtLowPt': Channel(lowHtLowPtPlot, 'Muon', 'DataM', 120., 200.),
+        'mu200LowHtLowPt': Channel(lowHtLowPtPlot, 'Muon', 'DataM', 200.),
+        'el120HighHtLowPt': Channel(highHtLowPtPlot, 'Electron', 'DataE', 120., 200.),
+        'el200HighHtLowPt': Channel(highHtLowPtPlot, 'Electron', 'DataE', 200.),
+        'mu120HighHtLowPt': Channel(highHtLowPtPlot, 'Muon', 'DataM', 120., 200.),
+        'mu200HighHtLowPt': Channel(highHtLowPtPlot, 'Muon', 'DataM', 200.),
+        'el120NoJetHighPt': Channel(noJetHighPtPlot, 'Electron', 'DataE', 120., 200.),
+        'el200NoJetHighPt': Channel(noJetHighPtPlot, 'Electron', 'DataE', 200.),
+        'mu120NoJetHighPt': Channel(noJetHighPtPlot, 'Muon', 'DataM', 120., 200.),
+        'mu200NoJetHighPt': Channel(noJetHighPtPlot, 'Muon', 'DataM', 200.),
+        'el120MidHtHighPt': Channel(midHtHighPtPlot, 'Electron', 'DataE', 120., 200.),
+        'el200MidHtHighPt': Channel(midHtHighPtPlot, 'Electron', 'DataE', 200.),
+        'mu120MidHtHighPt': Channel(midHtHighPtPlot, 'Muon', 'DataM', 120., 200.),
+        'mu200MidHtHighPt': Channel(midHtHighPtPlot, 'Muon', 'DataM', 200.),
+        'el120HighHtHighPt': Channel(highHtHighPtPlot, 'Electron', 'DataE', 120., 200.),
+        'el200HighHtHighPt': Channel(highHtHighPtPlot, 'Electron', 'DataE', 200.),
+        'mu120HighHtHighPt': Channel(highHtHighPtPlot, 'Muon', 'DataM', 120., 200.),
+        'mu200HighHtHighPt': Channel(highHtHighPtPlot, 'Muon', 'DataM', 200.),
+    }
+
+#    noJetHighPtPlot = 'MetHighMtNoJetHighPhotonPt'
+#    midHtHighPtPlot = 'MetHighMtMidHtHighPhotonPt'
+#    highHtHighPtPlot = 'MetHighMtHighHtHighPhotonPt'
+#    
+#    channels = {
+#        'el120NoJetHighPt': Channel(noJetHighPtPlot, 'Electron', 'DataE', 120., 200.),
+#        'el200NoJetHighPt': Channel(noJetHighPtPlot, 'Electron', 'DataE', 200., 300.),
+#        'el300NoJetHighPt': Channel(noJetHighPtPlot, 'Electron', 'DataE', 300.),
+#        'mu120NoJetHighPt': Channel(noJetHighPtPlot, 'Muon', 'DataM', 120., 200.),
+#        'mu200NoJetHighPt': Channel(noJetHighPtPlot, 'Muon', 'DataM', 200., 300.),
+#        'mu300NoJetHighPt': Channel(noJetHighPtPlot, 'Muon', 'DataM', 300.),
+#        'el120MidHtHighPt': Channel(midHtHighPtPlot, 'Electron', 'DataE', 120., 200.),
+#        'el200MidHtHighPt': Channel(midHtHighPtPlot, 'Electron', 'DataE', 200., 300.),
+#        'el300MidHtHighPt': Channel(midHtHighPtPlot, 'Electron', 'DataE', 300.),
+#        'mu120MidHtHighPt': Channel(midHtHighPtPlot, 'Muon', 'DataM', 120., 200.),
+#        'mu200MidHtHighPt': Channel(midHtHighPtPlot, 'Muon', 'DataM', 200., 300.),
+#        'mu300MidHtHighPt': Channel(midHtHighPtPlot, 'Muon', 'DataM', 300.),
+#        'el120HighHtHighPt': Channel(highHtHighPtPlot, 'Electron', 'DataE', 120., 200.),
+#        'el200HighHtHighPt': Channel(highHtHighPtPlot, 'Electron', 'DataE', 200., 300.),
+#        'el300HighHtHighPt': Channel(highHtHighPtPlot, 'Electron', 'DataE', 300.),
+#        'mu120HighHtHighPt': Channel(highHtHighPtPlot, 'Muon', 'DataM', 120., 200.),
+#        'mu200HighHtHighPt': Channel(highHtHighPtPlot, 'Muon', 'DataM', 200., 300.),
+#        'mu300HighHtHighPt': Channel(highHtHighPtPlot, 'Muon', 'DataM', 300.),
+#    }
+
+    source = {
+        'Electron': ROOT.TFile.Open(OUTPUTDIR + '/FloatingVGammaE.root'),
+        'Muon': ROOT.TFile.Open(OUTPUTDIR + '/FloatingVGammaM.root')
+    }
+
+    for channel in channels.values():
+        channel.source = source[channel.lepton]
+    
+    setupChannels(channels)
     nuisances = getNuisances(channels)
 
-    writeDataCard(channels, nuisances, '/afs/cern.ch/user/y/yiiyama/work/datacards' + suffix + '/' + pointName + '.dat')
+    sourceScale = source
+
+    sourceJESUp = {
+        'Electron': ROOT.TFile.Open(OUTPUTDIR + '/FloatingVGammaJESUpE.root'),
+        'Muon': ROOT.TFile.Open(OUTPUTDIR + '/FloatingVGammaJESUpM.root')
+    }
+    sourceJESDown = {
+        'Electron': ROOT.TFile.Open(OUTPUTDIR + '/FloatingVGammaJESDownE.root'),
+        'Muon': ROOT.TFile.Open(OUTPUTDIR + '/FloatingVGammaJESDownM.root')
+    }
+
+    for channelName, channel in channels.items():
+        scaleGr = sourceScale[channel.lepton].Get('TemplateFitError/VGammaNoEff')
+        nuisances['vgscale_' + channel.lepton][channel.processes['VGamma']] = boundVal(scaleGr.GetErrorY(0) / scaleGr.GetY()[0])
+
+        for procName, process in channel.processes.items():
+            if procName == 'signal': continue
+            if process.rate == 0.: continue
+            histName = 'groups/' + channel.histoName + '/' + channel.histoName + '_' + procName
+            up = (getBinContent(sourceJESUp[channel.lepton].Get(histName), channel.xmin, channel.xmax) - process.rate) / process.rate
+            down = (getBinContent(sourceJESDown[channel.lepton].Get(histName), channel.xmin, channel.xmax) - process.rate) / process.rate
+
+            if abs(up) < 5.e-4 and abs(down) < 5.e-4: continue
+
+            # always use sign of upward JES shift
+            if abs(up) > abs(down):
+                nuisances['jes'][process] = boundVal(up)
+                
+            elif abs(down) > abs(up):
+                if down * up < 0.:
+                    nuisances['jes'][process] = boundVal(-down)
+                else:
+                    nuisances['jes'][process] = boundVal(down)
+
+    for src in sourceJESUp.values():
+        src.Close()
+    for src in sourceJESDown.values():
+        src.Close()
+
+    sourcePtL = {
+        'Electron': ROOT.TFile.Open(OUTPUTDIR + '/FloatingVGammaPtLE.root'),
+        'Muon': ROOT.TFile.Open(OUTPUTDIR + '/FloatingVGammaPtLM.root')
+    }
+
+    for channelName, channel in channels.items():
+        process = channel.processes['VGamma']
+
+        if process.rate == 0.: continue
+
+        histName = 'groups/' + channel.histoName + '/' + channel.histoName + '_VGamma'
+        diff = abs(getBinContent(sourcePtL[channel.lepton].Get(histName), channel.xmin, channel.xmax) - process.rate) / process.rate
+
+        if diff < 5.e-4: continue
+
+        nuisances['vgshape'][process] = boundVal(diff)
+
+
+    with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + outputName, 'w') as outputFile:
+        pickle.dump((channels, nuisances), outputFile)
+
+    writeDataCard(channels, nuisances, options.outputDir + '/' + outputName.replace('.pkl', '.dat'), allowZeroSignal = True)
