@@ -2,10 +2,14 @@ import os
 import sys
 import shutil
 import time
+import math
 import subprocess
 import array
 import re
+import pickle
 import ROOT
+
+from datacard import *
 
 SETENV = 'cd /afs/cern.ch/user/y/yiiyama/cmssw/Combine612; eval `scram runtime -sh`;'
 FULLCLS = False
@@ -252,18 +256,11 @@ def fullCLs(card, workdir):
         time.sleep(1)
 
     return getLimits(workdir + '/HybridFullCLs.root')
-    
 
-if __name__ == '__main__':
 
-    import pickle
+def computeLimits(model, point, carddir, channels, outputdir):
 
-    card = os.path.realpath(sys.argv[1])
-    pkl = os.path.realpath(sys.argv[2])
-    outputdir = sys.argv[3]
-
-    cardName = os.path.basename(card)
-    pointName = cardName[0:cardName.rfind('.')]
+    pointName = model + '_' + point
 
     try:
         workdir = os.environ['TMPDIR'] + '/' + pointName
@@ -279,8 +276,9 @@ if __name__ == '__main__':
     except OSError:
         pass
 
-    from writeDataCard import *
-    channels, nuisances = pickle.load(open(pkl))
+    card = carddir + '/' + pointName + '.dat'
+    if not os.path.exists(card):
+        raise OSError('Datacard not found')
 
     print 'Calculating asymptotic limits..'
 
@@ -299,18 +297,66 @@ if __name__ == '__main__':
 
     # Write result to a single-entry tree (to be merged with calculations for all other signal points)
 
-    model = pointName[0:pointName.find('_')]
+    if model == 'T5wg+TChiwg':
 
-    with open('/afs/cern.ch/user/y/yiiyama/src/GammaL/limits/xsecs/' + model + '.xsecs') as xsecsource:
-        for line in xsecsource:
-            p, c, u, n = line.strip().split()
-            if p == pointName:
-                xsec = float(c)
-                uncert = float(u)
-                nEvents = int(n)
+        xsec = 0.
+        uncert2 = 0.
+        nEvents = 0
+
+        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/T5wg.xsecs') as xsecsource:
+            pname = 'T5wg_' + point
+            for line in xsecsource:
+                p, c, u, n = line.strip().split()
+                if p != pname: continue
+
+                xsec += float(c)
+                nEvents += int(n)
+                uncert2 += math.pow(float(u) * float(c), 2.)
                 break
-        else:
-            raise RuntimeError('No point ' + pointName + ' found')
+            else:
+                raise RuntimeError('No point ' + pname + ' found')
+
+        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/TChiwg.xsecs') as xsecsource:
+            pname = 'TChiwg_' + point[point.find('_') + 1:]
+            for line in xsecsource:
+                p, c, u, n = line.strip().split()
+                if p != pname: continue
+
+                xsec += float(c) / 0.326
+                nEvents += int(n)
+                uncert2 += math.pow(float(u) * float(c) / 0.326, 2.)
+                break
+            else:
+                raise RuntimeError('No point ' + pname + ' found')
+        
+        uncert = math.sqrt(uncert2) / xsec
+
+    elif model == 'Spectra_gW':
+        xsec = 0.
+        uncert2 = 0.
+        nEvents = 0
+
+        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/' + model + '.xsecs') as xsecsource:
+            for line in xsecsource:
+                p, c, u, n = line.strip().split()
+                if pointName in p:
+                    xsec += float(c)
+                    nEvents += int(n)
+                    uncert2 += math.pow(float(u) * float(c), 2.)
+
+        uncert = math.sqrt(uncert2) / xsec
+
+    else:
+        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/' + model + '.xsecs') as xsecsource:
+            for line in xsecsource:
+                p, c, u, n = line.strip().split()
+                if p == pointName:
+                    xsec = float(c)
+                    uncert = float(u)
+                    nEvents = int(n)
+                    break
+            else:
+                raise RuntimeError('No point ' + pointName + ' found')
     
     outputFile = ROOT.TFile.Open(workdir + '/' + pointName + '.root', 'recreate')
     output = ROOT.TTree('limitTree', 'Limit Tree')
@@ -349,12 +395,12 @@ if __name__ == '__main__':
             yields[matches.group(1)][0] = int(matches.group(2))
 
     if len(limits) == 6:
-        vLimObs[0] = limits['obs'] * xsec
-        vLimMed[0] = limits['med'] * xsec
-        vLimM2s[0] = limits['m2s'] * xsec
-        vLimM1s[0] = limits['m1s'] * xsec
-        vLimP1s[0] = limits['p1s'] * xsec
-        vLimP2s[0] = limits['p2s'] * xsec
+        vLimObs[0] = limits['obs']
+        vLimMed[0] = limits['med']
+        vLimM2s[0] = limits['m2s']
+        vLimM1s[0] = limits['m1s']
+        vLimP1s[0] = limits['p1s']
+        vLimP2s[0] = limits['p2s']
     
         output.Fill()
     else:
@@ -364,3 +410,19 @@ if __name__ == '__main__':
     outputFile.Close()
 
     shutil.copyfile(workdir + '/' + pointName + '.root', outputdir + '/' + pointName + '.root')
+
+
+if __name__ == '__main__':
+
+    model = sys.argv[1]
+    point = sys.argv[2]
+    carddir = os.path.realpath(sys.argv[3])
+    pklName = os.path.realpath(sys.argv[4])
+    outputdir = sys.argv[5]
+
+    pklFile = open(pklName)
+    channels, nuisances = pickle.load(pklFile)
+    pklFile.close()
+
+    computeLimits(model, point, carddir, channels, outputdir)
+

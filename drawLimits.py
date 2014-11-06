@@ -7,7 +7,6 @@ ROOT.gROOT.SetBatch(True)
 ROOT.gErrorIgnoreLevel = 2000
 ROOT.gStyle.SetOptStat(0)
 
-PLOTSDIR = '/afs/cern.ch/user/y/yiiyama/www/plots/limits20'
 TITLEBASE = 'CMS Preliminary, 19.7 fb^{-1}, #sqrt{s} = 8 TeV'
 ASYMPTOTIC = True
 
@@ -71,6 +70,8 @@ def truncateContour(contour, base):
 
 
 def closeContour(contour, base):
+    # currently disabled
+
     x = ROOT.Double()
     y = ROOT.Double()
 
@@ -101,16 +102,16 @@ def closeContour(contour, base):
         for iP in range(contour.GetN() - 1, 0, -1):
             contour.GetPoint(iP - 1, x, y)
             contour.SetPoint(iP, x, y)
-        x = xExtr
-        y = yExtr
+        x = ROOT.Double(xExtr)
+        y = ROOT.Double(yExtr)
         contour.SetPoint(0, x, y)
 
     if xEnd - xmin < xw or yEnd - ymin < yw:
         contour.GetPoint(contour.GetN() - 2, x, y)
         xNext = float(x)
         yNext = float(y)
-        x = max(xEnd + (xEnd - xNext) / (yEnd - yNext) * (ymin - yEnd), xmin)
-        y = max(yEnd + (yEnd - yNext) / (xEnd - xNext) * (xmin - xEnd), ymin)
+        x = ROOT.Double(max(xEnd + (xEnd - xNext) / (yEnd - yNext) * (ymin - yEnd), xmin))
+        y = ROOT.Double(max(yEnd + (yEnd - yNext) / (xEnd - xNext) * (xmin - xEnd), ymin))
         contour.Set(contour.GetN() + 1)
         contour.SetPoint(contour.GetN() - 1, x, y)
 
@@ -124,21 +125,21 @@ def closeContour(contour, base):
         for iP in range(contour.GetN() - 1, 0, -1):
             contour.GetPoint(iP - 1, x, y)
             contour.SetPoint(iP, x, y)
-        x = xExtr
-        y = yExtr
+        x = ROOT.Double(xExtr)
+        y = ROOT.Double(yExtr)
         contour.SetPoint(0, x, y)
 
     if xmax - xEnd < xw or ymax - yEnd < yw:
         contour.GetPoint(contour.GetN() - 2, x, y)
         xNext = float(x)
         yNext = float(y)
-        x = max(xEnd + (xEnd - xNext) / (yEnd - yNext) * (ymax - yEnd), xmax)
-        y = max(yEnd + (yEnd - yNext) / (xEnd - xNext) * (xmax - xEnd), ymax)
+        x = ROOT.Double(max(xEnd + (xEnd - xNext) / (yEnd - yNext) * (ymax - yEnd), xmax))
+        y = ROOT.Double(max(yEnd + (yEnd - yNext) / (xEnd - xNext) * (xmax - xEnd), ymax))
         contour.Set(contour.GetN() + 1)
         contour.SetPoint(contour.GetN() - 1, x, y)
 
 
-def drawLimits(model, sourceName, pointFormat, titles):
+def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1., outputName = ''):
 
     ndim = len(titles) - 1
     if ndim == 1:
@@ -146,9 +147,12 @@ def drawLimits(model, sourceName, pointFormat, titles):
     else:
         DRAWOPTION = 'COLZ'
 
+    if not outputName:
+        outputName = model
+
     # Tree with information on one signal point per row. Columns are the name, cross section, median and +-1/2 sigma xsec upper bounds of the point.
     inputTree = ROOT.TChain('limitTree')
-    inputTree.Add('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + sourceName)
+    inputTree.Add(sourceName)
 
     vPointName = array.array('c', ' ' * 100)
     vXsec = array.array('d', [0.])
@@ -204,8 +208,8 @@ def drawLimits(model, sourceName, pointFormat, titles):
         for iD in range(ndim):
             centers[iD].append(coord[iD])
 
-        xsecs[coord] = vXsec[0]
-        xsecErrors[coord] = vXsecErr[0]
+        xsecs[coord] = vXsec[0] * xsecScale
+        xsecErrors[coord] = vXsecErr[0] * xsecScale
         limits[3][coord] = vLimObs[0]
         limits[-2][coord] = vLimM2s[0]
         limits[-1][coord] = vLimM1s[0]
@@ -264,7 +268,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
     else:
         canvas.SetRightMargin(0.17)
 
-    output = ROOT.TFile.Open('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/' + model + '.root', 'recreate')
+    output = ROOT.TFile.Open('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/' + outputName + '.root', 'recreate')
 
     if ndim == 1:
         canvas.SetLogy(True)
@@ -337,7 +341,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
                 palette.SetTitleOffset(1.5)
                 palette.SetLabelSize(0.03)
 
-        canvas.Print(PLOTSDIR + '/' + model + '_acceptance_' + lept + '.pdf')
+        canvas.Print(plotsDir + '/' + outputName + '_acceptance_' + lept + '.pdf')
 
 
     if ndim == 1:
@@ -353,6 +357,8 @@ def drawLimits(model, sourceName, pointFormat, titles):
         title = 'Cross Section'
         if sig != 0:
             title += ' %+d #sigma_{theory}' % sig
+        if xsecScale != 1.:
+            title += ' (BR=%.2f)' % xsecScale
         crosssect[sig].SetTitle(title)
 
         axisTitle = '#sigma (pb)'
@@ -384,7 +390,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
                 palette.SetTitleOffset(1.5)
                 palette.SetLabelSize(0.03)
 
-        canvas.Print(PLOTSDIR + '/' + model + '_crosssect' + suffix(sig) + '.pdf')
+        canvas.Print(plotsDir + '/' + outputName + '_crosssect' + suffix(sig) + '.pdf')
 
 #    canvas.SetLogz(True)
 
@@ -417,7 +423,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
         
         for coord, limit in limits[sig].items():
             bin = upperlim[sig].FindBin(*coord)
-            upperlim[sig].SetBinContent(bin, limit)
+            upperlim[sig].SetBinContent(bin, limit * xsecs[coord])
 
         upperlim[sig].Write()
 
@@ -433,7 +439,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
                 palette.SetTitleOffset(1.5)
                 palette.SetLabelSize(0.03)
 
-        canvas.Print(PLOTSDIR + '/' + model + '_upperlim' + suffix(sig) + '.pdf')
+        canvas.Print(plotsDir + '/' + outputName + '_upperlim' + suffix(sig) + '.pdf')
 
 
     if ndim == 2:
@@ -459,6 +465,8 @@ def drawLimits(model, sourceName, pointFormat, titles):
                 title += ' (Expected)'
             else:
                 title += ' (Expected %+d #sigma_{experiment})' % sig
+            if xsecScale != 1.:
+                title += ' (BR=%.2f)' % xsecScale
     
             exclusion[key].SetTitle(title)
 
@@ -467,7 +475,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
                 exclusion[key].GetYaxis().SetTitle(axisTitle)
             else:
                 exclusion[key].GetZaxis().SetTitle(axisTitle)
-    
+
             exclusion[key].Add(crosssect[theo])
             exclusion[key].Add(upperlim[sig], -1.)
     
@@ -495,6 +503,11 @@ def drawLimits(model, sourceName, pointFormat, titles):
         theory = ROOT.TGraph(len(xsecs.items()))
         theoryUp = ROOT.TGraph(len(xsecs.items()))
         theoryDown = ROOT.TGraph(len(xsecs.items()))
+        if model == 'TChiwg':
+            theoryScaled = ROOT.TGraph(len(xsecs.items()))
+            theoryScaledUp = ROOT.TGraph(len(xsecs.items()))
+            theoryScaledDown = ROOT.TGraph(len(xsecs.items()))
+
         iP = 0
         for coord in sorted(xsecs.keys()):
             yUp = xsecs[coord] * (1. + xsecErrors[coord])
@@ -503,6 +516,11 @@ def drawLimits(model, sourceName, pointFormat, titles):
             theory.SetPoint(iP, coord[0], xsecs[coord])
             theoryUp.SetPoint(iP, coord[0], yUp)
             theoryDown.SetPoint(iP, coord[0], yDown)
+            if model == 'TChiwg':
+                theoryScaled.SetPoint(iP, coord[0], xsecs[coord] * 0.22)
+                theoryScaledUp.SetPoint(iP, coord[0], yUp * 0.22)
+                theoryScaledDown.SetPoint(iP, coord[0], yDown * 0.22)
+
             iP += 1
 
             if yUp > ymax: ymax = yUp
@@ -543,6 +561,17 @@ def drawLimits(model, sourceName, pointFormat, titles):
         theoryDown.SetLineColor(ROOT.kBlue)
         theoryDown.SetLineStyle(ROOT.kDashed)
         theoryDown.SetLineWidth(2)
+        if model == 'TChiwg':
+            theoryScaled.SetLineColor(ROOT.kOrange + 10)
+            theoryScaled.SetLineStyle(ROOT.kSolid)
+            theoryScaled.SetLineWidth(2)
+            theoryScaledUp.SetLineColor(ROOT.kOrange + 10)
+            theoryScaledUp.SetLineStyle(ROOT.kDashed)
+            theoryScaledUp.SetLineWidth(2)
+            theoryScaledDown.SetLineColor(ROOT.kOrange + 10)
+            theoryScaledDown.SetLineStyle(ROOT.kDashed)
+            theoryScaledDown.SetLineWidth(2)
+
         expected.SetLineColor(ROOT.kBlack)
         expected.SetLineStyle(ROOT.kDashed)
         expected.SetLineWidth(2)
@@ -561,6 +590,11 @@ def drawLimits(model, sourceName, pointFormat, titles):
         theory.Draw('C')
         theoryUp.Draw('C')
         theoryDown.Draw('C')
+        if model == 'TChiwg':
+            theoryScaled.Draw('C')
+            theoryScaledUp.Draw('C')
+            theoryScaledDown.Draw('C')
+
         expected.Draw('C')
         observed.Draw('CP')
 
@@ -591,7 +625,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
         maxY = 0.
         for contour in contours[(0, 0)]:
             truncateContour(contour, crosssect[0])
-            closeContour(contour, crosssect[0])
+#            closeContour(contour, crosssect[0])
             contour.SetLineColor(ROOT.kRed)
             contour.SetLineWidth(4)
             contour.Draw('L')
@@ -603,7 +637,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
         for sig in [-1, 1]:
             for contour in contours[(sig, 0)]:
                 truncateContour(contour, crosssect[0])
-                closeContour(contour, crosssect[0])
+#                closeContour(contour, crosssect[0])
                 contour.SetLineColor(ROOT.kRed)
                 contour.SetLineWidth(2)
                 contour.SetLineStyle(ROOT.kDashed)
@@ -611,7 +645,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
     
         for contour in contours[(3, 0)]:
             truncateContour(contour, crosssect[0])
-            closeContour(contour, crosssect[0])
+#            closeContour(contour, crosssect[0])
             contour.SetLineColor(ROOT.kBlack)
             contour.SetLineWidth(4)
             contour.Draw('L')
@@ -623,7 +657,7 @@ def drawLimits(model, sourceName, pointFormat, titles):
         for theo in [-1, 1]:
             for contour in contours[(3, theo)]:
                 truncateContour(contour, crosssect[0])
-                closeContour(contour, crosssect[0])
+#                closeContour(contour, crosssect[0])
                 contour.SetLineColor(ROOT.kBlack)
                 contour.SetLineWidth(2)
                 contour.SetLineStyle(ROOT.kDashed)
@@ -669,18 +703,16 @@ def drawLimits(model, sourceName, pointFormat, titles):
         header.AddText(0.02, 0.84, titles[0])
         text = '95%'
         if ASYMPTOTIC: text += ' asymptotic'
-        text += ' CL_{s}'
-        if ndim == 1:
-            text += ' cross section upper limits'
-        else:
-            text += ' exclusion'
+        text += ' CL_{s} cross section upper limits'
+        if xsecScale != 1.:
+            text += ' (BR=%.2f)' % xsecScale
         header.AddText(0.02, 0.64, text)
 
-        line = header.AddLine(0.02, 0.5, 0.08, 0.5)
+        line = header.AddLine(0.02, 0.48, 0.08, 0.48)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kSolid)
         line.SetLineColor(ROOT.kBlack)
-        box = header.AddBox(0.046, 0.48, 0.054, 0.52)
+        box = header.AddBox(0.046, 0.46, 0.054, 0.5)
         box.SetFillColor(ROOT.kBlack)
         box.SetLineWidth(0)
         header.AddText(0.1, 0.44, 'Observed')
@@ -694,10 +726,10 @@ def drawLimits(model, sourceName, pointFormat, titles):
         line.SetLineColor(ROOT.kBlack)
         header.AddText(0.1, 0.24, 'Expected (68%)')
 
-        box = header.AddBox(0.02, 0.04, 0.08, 0.16)
+        box = header.AddBox(0.02, 0.06, 0.08, 0.18)
         box.SetFillColor(ROOT.kYellow)
         box.SetLineWidth(0)
-        line = header.AddLine(0.02, 0.1, 0.08, 0.1)
+        line = header.AddLine(0.02, 0.12, 0.08, 0.12)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineWidth(2)
         line.SetLineColor(ROOT.kBlack)
@@ -717,15 +749,28 @@ def drawLimits(model, sourceName, pointFormat, titles):
         line.SetLineColor(ROOT.kBlue)
         header.AddText(0.6, 0.44, 'Theory #pm 1 #sigma')
 
+        if model == 'TChiwg':
+            line = header.AddLine(0.52, 0.34, 0.58, 0.34)
+            line.SetLineWidth(2)
+            line.SetLineStyle(ROOT.kDashed)
+            line.SetLineColor(ROOT.kOrange + 10)
+            line = header.AddLine(0.52, 0.3, 0.58, 0.3)
+            line.SetLineWidth(2)
+            line.SetLineStyle(ROOT.kSolid)
+            line.SetLineColor(ROOT.kOrange + 10)
+            line = header.AddLine(0.52, 0.26, 0.58, 0.26)
+            line.SetLineWidth(2)
+            line.SetLineStyle(ROOT.kDashed)
+            line.SetLineColor(ROOT.kOrange + 10)
+            header.AddText(0.6, 0.26, ' #times sin^{2}#theta_{W}')
+
     else:
         header.AddText(0.02, 0.84, titles[0])
         text = '95%'
         if ASYMPTOTIC: text += ' asymptotic'
-        text += ' CL_{s}'
-        if ndim == 1:
-            text += ' cross section upper limits'
-        else:
-            text += ' exclusion'
+        text += ' CL_{s} exclusion'
+        if xsecScale != 1.:
+            text += ' (BR=%.2f)' % xsecScale
         header.AddText(0.02, 0.58, text)
 
         line = header.AddLine(0.02, 0.43, 0.08, 0.43)
@@ -759,24 +804,40 @@ def drawLimits(model, sourceName, pointFormat, titles):
     header.Draw()
     header.SetDrawOption(' ')
     
-    canvas.Print(PLOTSDIR + '/' + model + '_exclusion.pdf')
+    canvas.Print(plotsDir + '/' + outputName + '_exclusion.pdf')
         
 
 if __name__ == '__main__':
 
     import sys
+    from optparse import OptionParser
 
-    model = sys.argv[1]
-    if len(sys.argv) == 3:
-        sourceName = sys.argv[2]
+    parser = OptionParser(usage = 'Usage: writeDataCard.py [options] outputName')
+    parser.add_option('-s', '--source', dest = 'sourceName', default = '', help = 'source root file')
+    parser.add_option('-x', '--scale-xsec', dest = 'xsecScale', type = 'float', default = 1., help = 'cross section scale factor')
+    parser.add_option('-o', '--output-name', dest = 'outputName', default = '', help = 'output plot file name')
+
+    options, args = parser.parse_args()
+
+    model = args[0]
+    if options.sourceName:
+        sourceName = options.sourceName
     else:
-        sourceName = model + '.root'
+        sourceName = '/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + model + '.root'
 
-    if 'T5wg' in model:
+    plotsDir = args[1]
+
+    if model == 'T5wg':
         form = 'T5wg_([0-9]+)_([0-9]+)'
         titles = ('pp #rightarrow #tilde{g} #tilde{g}, #tilde{g} #rightarrow q #bar{q} #tilde{#chi}^{0/#pm}, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{g}} (GeV)', 'M_{#tilde{#chi}} (GeV)')
-    elif 'TChiwg' in model:
+    elif model == 'TChiwg':
         form = 'TChiwg_([0-9]+)'
         titles = ('pp #rightarrow #tilde{#chi}^{#pm} #tilde{#chi}^{0}, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{#chi}} (GeV)')
+    elif model == 'T5wg+TChiwg':
+        form = 'T5wg\\+TChiwg_([0-9]+)_([0-9]+)'
+        titles = ('Simplified GMSB, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{g}} (GeV)', 'M_{#tilde{#chi}} (GeV)')
+    elif model == 'Spectra_gW':
+        form = 'Spectra_gW_M3_([0-9]+)_M2_([0-9]+)'
+        titles = ('GGM Wino-like NLSP NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
 
-    drawLimits(model, sourceName, form, titles)
+    drawLimits(model, sourceName, plotsDir, form, titles, xsecScale = options.xsecScale, outputName = options.outputName)

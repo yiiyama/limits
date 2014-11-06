@@ -142,11 +142,9 @@ xsecs = {
     2000: (2.94E-08, 2.94E-08)
 }
 
-outputFile = open('TChiwg.xsecs', 'w')
-
 mchis = sorted(xsecs.keys())
 
-for mchi in range(100, 810, 10):
+def getXsec(mchi):
     try:
         xsec, uncert = xsecs[mchi]
     except:
@@ -164,18 +162,45 @@ for mchi in range(100, 810, 10):
         xsec = math.exp(slope * mchi + intercept)
         uncert = xsecs[mLow][1] * float(m - mLow) / interval + xsecs[mHigh][1] * float(mHigh - m) / interval
 
-    dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-TChiwg_2J_mChargino-100to800_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
-    
+    return xsec, uncert
+
+data = {}
+
+dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-TChiwg_2J_mChargino-100to800_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
+
+for mchi in range(100, 810, 10):
     point = 'TChiwg_' + str(mchi)
+
+    xsec, uncert = getXsec(mchi)
+    
     tree = ROOT.TChain('triggerEventTree')
     tree.Add(dirname + '/susyTriggers_' + point + '_*.root')
 
     nEntries = tree.GetEntries()
 
+    data[point] = (xsec, uncert / xsec, nEntries)
+
+dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/PrivateMC/TChiwg'
+
+for mchi in range(125, 1600, 50):
+    point = 'TChiwg_' + str(mchi)
+
+    xsec, uncert = getXsec(mchi)
+
+    xsec *= 0.326
+    uncert *= 0.326
+    
+    tree = ROOT.TChain('triggerEventTree')
+    tree.Add(dirname + '/susyTriggers_' + point + '_*.root')
+
+    nEntries = tree.GetEntries()
+
+    data[point] = (xsec, uncert / xsec, nEntries)
+
+outputFile = open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/TChiwg.xsecs', 'w')
+
+for point in sorted(data.keys()):
     outputFile.write(point)
-    outputFile.write(' %.5e' % xsec)
-    outputFile.write(' %.3f' % (uncert / xsec))
-    outputFile.write(' ' + str(nEntries))
-    outputFile.write('\n')
+    outputFile.write(' %.5e %.3f %d\n' % data[point])
 
 outputFile.close()

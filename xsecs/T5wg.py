@@ -1,4 +1,30 @@
 import ROOT
+import threading
+
+def count(point, cont, semaphore):
+    mglu, mchi = point
+    
+    if mglu < 600:
+        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-400to550_mLSP-25to525_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
+    elif mglu < 800:
+        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-600to750_mLSP-25to725_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
+    elif mglu < 1000:
+        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-800to950_mLSP-25to925_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
+    elif mglu < 1200:
+        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-1000to1150_mLSP-25to1125_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
+    elif mglu < 1350:
+        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-1200to1300_mLSP-25to1275_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
+    else:
+        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-1350to1500_mLSP-25to1475_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v2-sorted'
+
+    fileName = dirname + '/susyTriggers_T5wg_%d_%d_*.root' % point
+
+    tree = ROOT.TChain('triggerEventTree')
+    tree.Add(fileName)
+    cont[1] = tree.GetEntries()
+
+    semaphore.release()
+
 
 xsecs = {
     200: (1010.1, 15.3749),
@@ -364,37 +390,39 @@ xsecs = {
     2000: (7.52864e-06, 65.128)
 }
 
-outputFile = open('T5wg_suppl.xsecs', 'w')
+outputFile = open('T5wg_th.xsecs', 'w')
 
-for mglu in range(400, 1550, 50):
+points = [(mglu, mchi) for mglu in range(400, 1550, 50) for mchi in range(25, mglu, 50)]
+
+counts = [[point, 0] for point in points]
+
+sem = threading.Semaphore(12)
+
+threads = []
+
+for point in points:
+    sem.acquire()
+    print point
+    thread = threading.Thread(target = count, args = (point, next(l for l in counts if l[0] == point), sem))
+    thread.start()
+    threads.append(thread)
+
+for thread in threads:
+    thread.join()
+
+for point in points:
+    mglu, mchi = point
+
     xsec, uncert = xsecs[mglu]
 
-    if mglu < 600:
-        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-400to550_mLSP-25to525_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
-    elif mglu < 800:
-        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-600to750_mLSP-25to725_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
-    elif mglu < 1000:
-        continue
-    elif mglu < 1200:
-        continue
-        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-1000to1150_mLSP-25to1125_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
-    elif mglu < 1350:
-        continue
-        dirname = '/store/RA3Ntuples/SusyNtuples/cms538v1p2/Summer12_FS53/SMS-T5wg_2J_mGl-1200to1300_mLSP-25to1275_TuneZ2star_8TeV-madgraph-tauola/START53_V19_FSIM_PU_S12-v1-sorted'
-    else:
-        continue
-    
-    for mchi in range(25, mglu, 50):
-        point = 'T5wg_' + str(mglu) + '_' + str(mchi)
-        tree = ROOT.TChain('triggerEventTree')
-        tree.Add(dirname + '/susyTriggers_' + point + '_*.root')
+    pointName = 'T5wg_' + str(mglu) + '_' + str(mchi)
 
-        nEntries = tree.GetEntries()
+    nEntries = next(l[1] for l in counts if l[0] == (mglu, mchi))
 
-        outputFile.write(point)
-        outputFile.write(' %.5e' % (xsec * 0.5))
-        outputFile.write(' %.2f' % (uncert / 100.))
-        outputFile.write(' ' + str(nEntries))
-        outputFile.write('\n')
+    outputFile.write(pointName)
+    outputFile.write(' %.5e' % (xsec * 0.5))
+    outputFile.write(' %.2f' % (uncert / 100.))
+    outputFile.write(' ' + str(nEntries))
+    outputFile.write('\n')
 
 outputFile.close()
