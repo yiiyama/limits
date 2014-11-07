@@ -125,7 +125,7 @@ def setSignal(model, pointName, processes, channels):
 
             process.nuisances['jes'] = jesUncert
 
-        process.addRate(rate, count)
+        process.addRate(pointName, rate, count)
 
     for source in scaleSources.values():
         source.Close()

@@ -41,7 +41,7 @@ def setupChannel(channel):
 
                 if rate < 0.: rate = 0.
 
-                process.addRate(rate, count)
+                process.addRate(sample.name, rate, count)
 
             channel.processes[group.name] = process
 

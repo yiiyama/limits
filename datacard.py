@@ -11,21 +11,21 @@ class Process(object):
         self.signal = signal
         self.nuisances = {}
 
-        self._rates = []
+        self.rates = {}
 
-    def addRate(self, rate, count):
+    def addRate(self, sample, rate, count):
         if count == 0: return
-        self._rates.append((rate, count))
+        self.rates[sample] = (rate, count)
 
     def rate(self):
-        return sum([r for r, c in self._rates])
+        return sum([r for r, c in self.rates.values()])
 
     def count(self):
-        if len(self._rates) == 0: return 0
+        if len(self.rates) == 0: return 0
 
         # effective count = (sum{count * w})^2 / sum{count * w^2}
         R2 = math.pow(self.rate(), 2.)
-        D = sum([r * r / c for r, c in self._rates])
+        D = sum([r * r / c for r, c in self.rates.values()])
         return int(round(R2 / D))
 
 
