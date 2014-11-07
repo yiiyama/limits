@@ -258,7 +258,7 @@ def fullCLs(card, workdir):
     return getLimits(workdir + '/HybridFullCLs.root')
 
 
-def computeLimits(model, point, carddir, channels, outputdir):
+def computeLimits(model, point, channels, outputdir):
 
     pointName = model + '_' + point
 
@@ -276,42 +276,39 @@ def computeLimits(model, point, carddir, channels, outputdir):
     except OSError:
         pass
 
-    card = carddir + '/' + pointName + '.dat'
-    if not os.path.exists(card):
-        raise OSError('Datacard not found')
+    cardPath = workdir + '/' + pointName + '.dat'
+
+    writeDataCard(channels, cardPath)
 
     print 'Calculating asymptotic limits..'
 
-    limits = asymptotic(card, workdir)
+    limits = asymptotic(cardPath, workdir)
 
     if len(limits) != 6:
         print 'Asymptotic method did not converge. Using profile likelihood..'
 
-        limits = profileLikelihood(card, workdir)
+        limits = profileLikelihood(cardPath, workdir)
 
     if FULLCLS:
         print 'Calculating full CLs..'
 
-        makeGrid((limits['m2s'], limits['p2s']), card, workdir)
-        limits = expected(card, workdir)
+        makeGrid((limits['m2s'], limits['p2s']), cardPath, workdir)
+        limits = expected(cardPath, workdir)
 
     # Write result to a single-entry tree (to be merged with calculations for all other signal points)
 
+    xsecs = {}
+    nEvents = {}
+
     if model == 'T5wg+TChiwg':
-
-        xsec = 0.
-        uncert2 = 0.
-        nEvents = 0
-
         with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/T5wg.xsecs') as xsecsource:
             pname = 'T5wg_' + point
             for line in xsecsource:
                 p, c, u, n = line.strip().split()
                 if p != pname: continue
 
-                xsec += float(c)
-                nEvents += int(n)
-                uncert2 += math.pow(float(u) * float(c), 2.)
+                xsecs[p] = (float(c), math.pow(float(u) * float(c), 2.))
+                nEvents[p] = int(n)
                 break
             else:
                 raise RuntimeError('No point ' + pname + ' found')
@@ -322,39 +319,33 @@ def computeLimits(model, point, carddir, channels, outputdir):
                 p, c, u, n = line.strip().split()
                 if p != pname: continue
 
-                xsec += float(c) / 0.326
-                nEvents += int(n)
-                uncert2 += math.pow(float(u) * float(c) / 0.326, 2.)
+                xsecs[p] = (float(c) / 0.326, math.pow(float(u) * float(c) / 0.326, 2.)) # TChiwg_suppl generated with lepton filter
+                nEvents[p] = int(n)
                 break
             else:
                 raise RuntimeError('No point ' + pname + ' found')
         
-        uncert = math.sqrt(uncert2) / xsec
-
     elif model == 'Spectra_gW':
-        xsec = 0.
-        uncert2 = 0.
-        nEvents = 0
-
         with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/' + model + '.xsecs') as xsecsource:
             for line in xsecsource:
                 p, c, u, n = line.strip().split()
-                if pointName in p:
-                    xsec += float(c)
-                    nEvents += int(n)
-                    uncert2 += math.pow(float(u) * float(c), 2.)
+                if pointName not in p: continue
 
-        uncert = math.sqrt(uncert2) / xsec
+                xsecs[p] = (float(c), math.pow(float(u) * float(c), 2.))
+                nEvents[p] = int(n)
+
+            if len(xsecs) == 0:
+                raise RuntimeError('No point ' + pointName + ' found')
 
     else:
         with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/' + model + '.xsecs') as xsecsource:
             for line in xsecsource:
                 p, c, u, n = line.strip().split()
-                if p == pointName:
-                    xsec = float(c)
-                    uncert = float(u)
-                    nEvents = int(n)
-                    break
+                if p != pointName: continue
+
+                xsecs[p] = (float(c), math.pow(float(u) * float(c), 2.))
+                nEvents[p] = int(n)
+                break
             else:
                 raise RuntimeError('No point ' + pointName + ' found')
     
@@ -362,15 +353,20 @@ def computeLimits(model, point, carddir, channels, outputdir):
     output = ROOT.TTree('limitTree', 'Limit Tree')
 
     vPointName = array.array('c', pointName + '\0')
-    vXsec = array.array('d', [xsec])
-    vXsecErr = array.array('d', [uncert])
+    vXsec = array.array('d', [0.])
+    vXsecErr = array.array('d', [0.])
     vLimObs = array.array('d', [0.])
     vLimMed = array.array('d', [0.])
     vLimM2s = array.array('d', [0.])
     vLimM1s = array.array('d', [0.])
     vLimP1s = array.array('d', [0.])
     vLimP2s = array.array('d', [0.])
-    vNEvents = array.array('i', [nEvents])
+    vNEvents = array.array('i', [0])
+    vNEventsEff = array.array('d', [0.])
+    vYield = array.array('i', [0] * len(channels))
+    vYieldEff = array.array('d', [0.] * len(channels))
+
+    channelNames = sorted(channels.keys())
                 
     output.Branch('pointName', vPointName, 'pointName/C')
     output.Branch('xsec', vXsec, 'xsec/D')
@@ -382,17 +378,31 @@ def computeLimits(model, point, carddir, channels, outputdir):
     output.Branch('limP1s', vLimP1s, 'limP1s/D')
     output.Branch('limP2s', vLimP2s, 'limP2s/D')
     output.Branch('nEvents', vNEvents, 'nEvents/I')
+    output.Branch('nEventsEff', vNEventsEff, 'nEventsEff/D')
+    output.Branch('yield', vYield, channelNames[0] + '/I:' + ':'.join(channelNames[1:]))
+    output.Branch('yieldEff', vYieldEff, channelNames[0] + '/D:' + ':'.join(channelNames[1:]))
 
-    yields = {}
-    for channel in sorted(channels.keys()):
-        yields[channel] = array.array('i', [0])
-        output.Branch(channel + 'Yield', yields[channel], channel + 'Yield/I')
+    vXsec[0] = sum(x[0] for x in xsecs.values())
+    vXsecErr[0] = math.sqrt(sum(x[1] for x in xsecs.values())) / vXsec[0]
+    vNEvents[0] = sum(n for n in nEvents.values())
+    sumNSigma = sum(nEvents[p] * xsecs[p][0] for p in nEvents.keys())
+    sumNSigma2 = sum(nEvents[p] * xsecs[p][0] * xsecs[p][0] for p in nEvents.keys())
+    vNEventsEff[0] = math.pow(sumNSigma, 2.) / sumNSigma2
 
-    with open(card) as cardFile:
-        for line in cardFile:
-            matches = re.match('([^_]+)_signal gmN ([0-9]+)', line.strip())
-            if not matches: continue
-            yields[matches.group(1)][0] = int(matches.group(2))
+    for iCh in range(len(channelNames)):
+        ch = channelNames[iCh]
+        signal = channels[ch].processes['signal']
+        vYield[iCh] = sum(r[1] for r in signal.rates.values())
+        sumNSigma = 0.
+        sumNSigma2 = 0.
+        for p, (r, c) in signal.rates.items():
+            sumNSigma += c * xsecs[p][0]
+            sumNSigma2 += c * xsecs[p][0] * xsecs[p][0]
+            
+        if sumNSigma2 > 0.:
+            vYieldEff[iCh] = math.pow(sumNSigma, 2.) / sumNSigma2
+        else:
+            vYieldEff[iCh] = 0.
 
     if len(limits) == 6:
         vLimObs[0] = limits['obs']
@@ -416,13 +426,17 @@ if __name__ == '__main__':
 
     model = sys.argv[1]
     point = sys.argv[2]
-    carddir = os.path.realpath(sys.argv[3])
-    pklName = os.path.realpath(sys.argv[4])
+    result = sys.argv[3]
+    pkldir = os.path.realpath(sys.argv[4])
     outputdir = sys.argv[5]
 
-    pklFile = open(pklName)
-    channels, nuisances = pickle.load(pklFile)
-    pklFile.close()
+    with open(pkldir + '/' + result) as source:
+        channels = pickle.load(source)
 
-    computeLimits(model, point, carddir, channels, outputdir)
+    with open(pkldir + '/' + model + '.pkl') as source:
+        signals = pickle.load(source)
 
+    for name, channel in channels.items():
+        channel.processes['signal'] = signals[model + '_' + point][name]
+
+    computeLimits(model, point, channels, outputdir)

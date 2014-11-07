@@ -4,9 +4,9 @@ MODEL=$1
 POINT=$2
 SUFFIX=$3
 
-SOURCE=$HOME/work/datacards${SUFFIX}
 DEST=$HOME/work/limits${SUFFIX}
-PKL=$HOME/output/GammaL/limits/full.pkl
+PKLDIR=$HOME/output/GammaL/limits
+RESPKL=result.pkl
 
 LOG=$HOME/work/logs/${MODEL}_${POINT}${SUFFIX}.log
 
@@ -21,4 +21,4 @@ echo "" >> $LOG
 date >> $LOG
 echo "" >> $LOG
 
-python computeLimits.py $MODEL $POINT $SOURCE $PKL $DEST >> $LOG 2>&1
+python computeLimits.py $MODEL $POINT $RESPKL $PKLDIR $DEST >> $LOG 2>&1
