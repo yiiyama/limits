@@ -6,20 +6,23 @@ LUMI = '19712.'
 treeStore = {}
 
 class Process(object):
-    def __init__(self, name, channel, rate, count, signal = False):
+    def __init__(self, name, signal = False):
         self.name = name
-        self.channel = channel
         self.signal = signal
+        self.nuisances = {}
 
-        self._rates = [(rate, count)]
+        self._rates = []
 
     def addRate(self, rate, count):
+        if count == 0: return
         self._rates.append((rate, count))
 
     def rate(self):
         return sum([r for r, c in self._rates])
 
     def count(self):
+        if len(self._rates) == 0: return 0
+
         # effective count = (sum{count * w})^2 / sum{count * w^2}
         R2 = math.pow(self.rate(), 2.)
         D = sum([r * r / c for r, c in self._rates])
@@ -27,16 +30,14 @@ class Process(object):
 
 
 class Channel(object):
-    def __init__(self, lepton, stackName, cut):
+    def __init__(self, name, lepton, stackName, cut):
+        self.name = name
         self.lepton = lepton
         self.stackName = stackName
         self.cut = cut
 
         self.observed = 0
         self.processes = {}
-
-    def addProcess(self, name, rate, count, signal = False):
-        self.processes[name] = Process(name, self, rate, count, signal = signal)
 
     def bkgTotal(self):
         return sum([p.rate() for p in self.processes.values() if not p.signal])
@@ -78,6 +79,8 @@ def boundVal(val, bound = 1.):
 
 
 def getJESUncert(samplesAndScales, cut, nominal):
+    
+    if nominal <= 0.: return 0.
 
     up = 0.
     down = 0.
@@ -105,7 +108,7 @@ def getJESUncert(samplesAndScales, cut, nominal):
             return boundVal(shiftDown)
 
 
-def writeDataCard(channels, nuisances, cardName):
+def writeDataCard(channels, cardName):
 
     HLINE = '----------------------------------------'
 
@@ -132,23 +135,37 @@ def writeDataCard(channels, nuisances, cardName):
             for iW in range(1, len(line)):
                 line[iW] = form % line[iW]
 
-    bkgNames = []
-    for ch in channels.values():
-        names = set([name for name, process in ch.processes.items() if not process.signal])
-        if len(bkgNames) == 0:
-            bkgNames = sorted(list(names))
+    processNames = []
+    for channel in channels.values():
+        names = set([name for name, process in channel.processes.items()])
+        if len(processNames) == 0:
+            processNames = sorted(list(names))
             continue
-        elif len(set(bkgNames) - names) or len(names - set(bkgNames)):
+        elif len(set(processNames) - names) or len(names - set(processNames)):
             raise RuntimeError('Background names do not match')
 
+    nBkg = len(processNames)
+
+    hasSignal = 'signal' in processNames
+    if hasSignal:
+        nBkg -= 1
+        processNames.remove('signal')
+        processNames.insert(0, 'signal')
+
     channelNames = sorted(channels.keys())
-    nuisanceNames = sorted(nuisances.keys())
+    nuisanceNamesAll = []
+    for channel in channels.values():
+        for process in channel.processes.values():
+            nuisanceNamesAll += process.nuisances.keys()
+
+    nuisanceNames = sorted(list(set(nuisanceNamesAll)))
 
     lines = []
 
     lines.append(['imax', str(len(channelNames))])
-    lines.append(['jmax', str(len(bkgNames))])
+    lines.append(['jmax', str(nBkg)])
     lines.append(['kmax'])
+    kmaxLine = lines[-1]
 
     lines.append(HLINE)
 
@@ -172,16 +189,13 @@ def writeDataCard(channels, nuisances, cardName):
     rateLine = ['rate']
     for ch in channelNames:
         channel = channels[ch]
-        binLine += ([ch] * (len(channel.processes)))
-        procNameLine.append('signal')
-        procIDLine.append('0')
-        rateLine.append('%.3e' % channel.processes['signal'].rate())
-        bkgID = 1
-        for proc in bkgNames:
+        binLine += ([ch] * len(channel.processes))
+        procID = 0 if hasSignal else 1
+        for proc in processNames:
             procNameLine.append(proc)
-            procIDLine.append(str(bkgID))
+            procIDLine.append(str(procID))
             rateLine.append('%.3e' % channel.processes[proc].rate())
-            bkgID += 1
+            procID += 1
 
     lines.append(binLine)
     lines.append(procNameLine)
@@ -193,14 +207,14 @@ def writeDataCard(channels, nuisances, cardName):
     kmax = 0
 
     for name in nuisanceNames:
-        nuisance = nuisances[name]
         line = [name + ' lnN']
         for ch in channelNames:
             channel = channels[ch]
-            for proc in ['signal'] + bkgNames:
+            for proc in processNames:
                 process = channel.processes[proc]
-                if process in nuisance and abs(nuisance[process]) >= 0.001:
-                    line.append('%9.3f' % (1. + nuisance[process]))
+                nuisances = process.nuisances
+                if name in nuisances and abs(nuisances[name]) >= 0.001:
+                    line.append('%9.3f' % (1. + nuisances[name]))
                 else:
                     line.append('-')
 
@@ -209,12 +223,13 @@ def writeDataCard(channels, nuisances, cardName):
 
     for ch in channelNames:
         channel = channels[ch]
-        for proc in ['signal'] + bkgNames:
+        for proc in processNames:
             process = channel.processes[proc]
-            if process.count() == 0: continue
+            count = process.count()
+            if count == 0: continue
 
-            line = [ch + '_' + proc + ' gmN ' + str(process.count())]
-            for chproc in [(c, p) for c in channelNames for p in ['signal'] + bkgNames]:
+            line = [ch + '_' + proc + ' gmN ' + str(count)]
+            for chproc in [(c, p) for c in channelNames for p in processNames]:
                 if chproc == (ch, proc):
                     line.append('%.2e' % (process.rate() / process.count()))
                 else:
@@ -225,7 +240,6 @@ def writeDataCard(channels, nuisances, cardName):
 
     alignColumns(lines[blockStart:])
 
-    kmaxLine = next(line for line in lines if line[0] == 'kmax')
     kmaxLine.append(str(kmax))
 
     with open(cardName, 'w') as datacard:

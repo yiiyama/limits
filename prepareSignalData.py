@@ -58,7 +58,7 @@ def getISRUncert(model, pointName, samplesAndScales, cut, nominal):
     return boundVal(shift)
 
 
-def setSignal(model, pointName, channels, nuisances, procName = 'signal'):
+def setSignal(model, pointName, processes, channels):
 
     dataset = getDataset(model, pointName)
     if not dataset: return
@@ -76,10 +76,11 @@ def setSignal(model, pointName, channels, nuisances, procName = 'signal'):
                 sample.loadTree('rooth://ncmu40//store/countSignal/' + model)
                 treeStore[sample.name] = sample.tree
 
-    for name, channel in channels.items():
-        scaleSource = ROOT.TFile('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/' + channel.stackName + '.root')
-        jlScale = scaleSource.Get('TemplateFitError/QCD').GetY()[0]
-        scaleSource.Close()
+    stackNames = set([c.stackName for c in channels.values()])
+    scaleSources = dict([(s, ROOT.TFile('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/' + s + '.root')) for s in stackNames])
+
+    for channelName, channel in channels.items():
+        jlScale = scaleSources[channel.stackName].Get('TemplateFitError/QCD').GetY()[0]
 
         candSample = dataset.samples['PhotonAnd' + channel.lepton]
         egSample = dataset.samples['ElePhotonAnd' + channel.lepton]
@@ -91,30 +92,43 @@ def setSignal(model, pointName, channels, nuisances, procName = 'signal'):
         rate -= getRateAndCount(jgSample, channel.cut)[0]
         rate -= getRateAndCount(jlSample, channel.cut)[0] * jlScale
 
-        if procName not in channel.processes:
-            channel.addProcess(procName, 0., 0, signal = True)
-        
-        process = channel.processes[procName]
-
         if rate < 0.: rate = 0.
 
-        process.addRate(rate, count)
+        if channelName not in processes:
+            processes[channelName] = Process('signal', signal = True)
+
+        process = processes[channelName]
 
         if rate != 0.:
+            process.nuisances['lumi'] = 0.026
+            process.nuisances['effcorr'] = 0.08
+
             if model == 'Spectra_gW':
-                nuisances['isr'][process] = 0.05
+                nuisances['isr'] = 0.05
             else:
                 samplesAndScales = [(candSample, 1.), (egSample, -1.), (jgSample, -1.), (jlSample, -jlScale)]
                 isrUncert = getISRUncert(model, pointName, samplesAndScales, channel.cut, rate)
     
-                if process in nuisances['isr']:
+                if 'isr' in process.nuisances:
                     isrUncert *= rate
-                    isrUncert += nuisances['isr'][process] * process.rate()
+                    isrUncert += process.nuisances['isr'] * process.rate()
                     isrUncert /= (rate + process.rate())
     
-                nuisances['isr'][process] = isrUncert
+                process.nuisances['isr'] = isrUncert
 
-            nuisances['jes'][process] = getJESUncert([(candSample, 1.)], channel.cut, rate)
+            jesUncert = getJESUncert([(candSample, 1.)], channel.cut, rate)
+
+            if 'jes' in process.nuisances:
+                jesUncert *= rate
+                jesUncert += process.nuisances['jes'] * process.rate()
+                jesUncert /= (rate + process.rate())
+
+            process.nuisances['jes'] = jesUncert
+
+        process.addRate(rate, count)
+
+    for source in scaleSources.values():
+        source.Close()
 
     if tmpFile is None:
         for sample in dataset.samples.values():
@@ -122,22 +136,12 @@ def setSignal(model, pointName, channels, nuisances, procName = 'signal'):
             sample.releaseTree()
 
 
-def clearSignal(channels, nuisances):
-    for channel in channels.values():
-        process = channel.processes['signal']
-    
-        process._rates = []
-        
-        nuisances['isr'][process] = 0.
-        nuisances['jes'][process] = 0.
-
 if __name__ == '__main__':
     import sys
     import pickle
     from optparse import OptionParser
 
     parser = OptionParser(usage = 'Usage: writeSignalDataCards.py [options] inputName')
-    parser.add_option('-d', '--directory', dest = 'outputDir', default = '/afs/cern.ch/user/y/yiiyama/work/datacards')
     parser.add_option('-p', '--point', dest = 'point', default = '')
     parser.add_option('-m', '--model', dest = 'model', default = '')
 
@@ -149,7 +153,8 @@ if __name__ == '__main__':
 
     inputName = args[0]
 
-    channels, nuisances = pickle.load(open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + inputName))
+    with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + inputName) as source:
+        channels = pickle.load(source)
 
     tmpFile = ROOT.TFile.Open(os.environ['TMPDIR'] + '/writeDataCard_signal_tmp.root', 'recreate')
 
@@ -182,18 +187,30 @@ if __name__ == '__main__':
         models = pointList.keys()
 
     for model in models:
+
+        outputFileName = '/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + model
+        if options.point:
+            outputFileName += '_' + options.point
+        outputFileName += '.pkl'
+
+        outputFile = open(outputFileName, 'wb')
+        data = {}
+
         for title in sorted(pointList[model].keys()):
             if options.point and title != options.point: continue
 
             fullTitle = model + '_' + title
             print fullTitle
 
-            plist = pointList[model][title]
+            signals = pointList[model][title]
+            processes = {}
+            for source, point in signals:
+                setSignal(source, point, processes, channels)
 
-            clearSignal(channels, nuisances)
-            for source, point in plist:
-                setSignal(source, point, channels, nuisances)
+            data[fullTitle] = processes
 
-            writeDataCard(channels, nuisances, options.outputDir + '/' + fullTitle + '.dat')
+        pickle.dump(data, outputFile)
+
+        outputFile.close()
 
     tmpFile.Close()
