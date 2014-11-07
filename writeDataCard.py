@@ -70,23 +70,21 @@ def setNuisances(nuisances, channel):
     groups = stackConfigs[channel.stackName].groups
 
     for group in groups:
-        if group.category != Group.BACKGROUND: continue
+        if group.name != 'EWK' and group.name != 'VGamma': continue
 
         process = channel.processes[group.name]
-        if process.rate == 0.: continue
+        if process.rate() == 0.: continue
 
         if group.name == 'VGamma':
             scale = scaleSource.Get('TemplateFitError/VGamma').GetY()[0]
-        elif name == 'JLFake':
-            scale = scaleSource.Get('TemplateFitError/QCD').GetY()[0]
         else:
             scale = 1.
 
-        nuisances['jes'][process] = getJESUncert([(sample, scale) for sample in group.samples], channel.cut, process.rate)
+        nuisances['jes'][process] = getJESUncert([(sample, scale) for sample in group.samples], channel.cut, process.rate())
 
     process = channel.processes['VGamma']
     group = next(group for group in groups if group.name == 'VGamma')
-    if process.rate != 0.:
+    if process.rate() != 0.:
         leptonPtSource = ROOT.TFile.Open('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/dimuonPt_binned.root')
         ptlWeight = leptonPtSource.Get('ratio')
 
@@ -108,7 +106,11 @@ def setNuisances(nuisances, channel):
             ptArr = tree.GetV1()
             wArr = tree.GetV2()
             for iE in range(nEntries):
-                rate += ptlWeight.Eval(ptArr[iE]) * wArr[iE]
+                iBin = ptlWeight.FindFixBin(ptArr[iE])
+                if iBin == 0: iBin = 1
+                elif iBin == ptlWeight.GetNbinsX() + 1: iBin = ptlWeight.GetNbinsX()
+
+                rate += ptlWeight.GetBinContent(iBin) * wArr[iE]
 
             if sample.name not in treeStore:
                 tree = None
@@ -117,7 +119,7 @@ def setNuisances(nuisances, channel):
         scaleGr = scaleSource.Get('TemplateFitError/VGamma')
         rate *= scaleGr.GetY()[0]
 
-        diff = abs(rate - process.rate) / process.rate
+        diff = abs(rate - process.rate()) / process.rate()
         if diff > 5.e-4:
             nuisances['vgshape'][process] = boundVal(diff)
 
@@ -198,7 +200,7 @@ if __name__ == '__main__':
         'isr': {}
     }
 
-    for ch in channels.values():
+    for name, ch in channels.items():
         setNuisances(nuisances, ch)
 
     tmpFile.Close()

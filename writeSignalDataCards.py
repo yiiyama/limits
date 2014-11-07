@@ -79,6 +79,7 @@ def setSignal(model, pointName, channels, nuisances, procName = 'signal'):
     for name, channel in channels.items():
         scaleSource = ROOT.TFile('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/' + channel.stackName + '.root')
         jlScale = scaleSource.Get('TemplateFitError/QCD').GetY()[0]
+        scaleSource.Close()
 
         candSample = dataset.samples['PhotonAnd' + channel.lepton]
         egSample = dataset.samples['ElePhotonAnd' + channel.lepton]
@@ -97,21 +98,23 @@ def setSignal(model, pointName, channels, nuisances, procName = 'signal'):
 
         if rate < 0.: rate = 0.
 
-        if rate != 0. and model != 'Spectra_gW':
-            samplesAndScales = [(candSample, 1.), (egSample, -1.), (jgSample, -1.), (jlSample, -jlScale)]
-            isrUncert = getISRUncert(model, pointName, samplesAndScales, channel.cut, rate)
+        process.addRate(rate, count)
 
-            if process in nuisances['isr']:
-                isrUncert *= rate
-                isrUncert += nuisances['isr'][process] * process.rate
-                isrUncert /= (rate + process.rate)
+        if rate != 0.:
+            if model == 'Spectra_gW':
+                nuisances['isr'][process] = 0.05
+            else:
+                samplesAndScales = [(candSample, 1.), (egSample, -1.), (jgSample, -1.), (jlSample, -jlScale)]
+                isrUncert = getISRUncert(model, pointName, samplesAndScales, channel.cut, rate)
+    
+                if process in nuisances['isr']:
+                    isrUncert *= rate
+                    isrUncert += nuisances['isr'][process] * process.rate()
+                    isrUncert /= (rate + process.rate())
+    
+                nuisances['isr'][process] = isrUncert
 
-            nuisances['isr'][process] = isrUncert
-
-        # adding count is technically incorrect; does not matter as long as acceptance is similar between the models
-        channel.setProcess(procName, rate + process.rate, count + process.count, signal = True)
-
-        scaleSource.Close()
+            nuisances['jes'][process] = getJESUncert([(candSample, 1.)], channel.cut, rate)
 
     if tmpFile is None:
         for sample in dataset.samples.values():
@@ -123,11 +126,10 @@ def clearSignal(channels, nuisances):
     for channel in channels.values():
         process = channel.processes['signal']
     
-        process.rate = 0.
-        process.count = 0
+        process._rates = []
         
         nuisances['isr'][process] = 0.
-
+        nuisances['jes'][process] = 0.
 
 if __name__ == '__main__':
     import sys
@@ -152,12 +154,20 @@ if __name__ == '__main__':
     tmpFile = ROOT.TFile.Open(os.environ['TMPDIR'] + '/writeDataCard_signal_tmp.root', 'recreate')
 
     pointList = {}
-    pointList['TChiwg'] = dict([('%d' % mchi, [('TChiwg', str(mchi))]) for mchi in range(100, 810, 10)])
-    pointList['T5wg'] = dict([('%d_%d' % (mglu, mchi), [('T5wg', '%d_%d' % (mglu, mchi))]) for mglu in range(400, 1550, 50) for mchi in range(25, mglu, 50)])
-    pointList['T5wg+TChiwg'] = {}
+    pointList['TChiwg'] = {}
+    for mchi in range(100, 810, 10):
+        pointList['TChiwg']['%d' % mchi] = [('TChiwg', str(mchi))]
+
+    pointList['T5wg'] = {}
     for mglu in range(400, 1550, 50):
-        for mchi in range(125, mglu, 50):
-            pointList['T5wg+TChiwg']['%d_%d' % (mglu, mchi)] = [('T5wg', '%d_%d' % (mglu, mchi)), ('TChiwg', '%d' % mchi)]
+        for mchi in range(25, mglu, 50):
+            pointList['T5wg']['%d_%d' % (mglu, mchi)] = [('T5wg', '%d_%d' % (mglu, mchi))]
+
+#    pointList['T5wg+TChiwg'] = {}
+#    for mglu in range(400, 1550, 50):
+#        for mchi in range(125, mglu, 50):
+#            pointList['T5wg+TChiwg']['%d_%d' % (mglu, mchi)] = [('T5wg', '%d_%d' % (mglu, mchi)), ('TChiwg', '%d' % mchi)]
+
     pointList['Spectra_gW'] = {}
     for m3 in range(715, 1565, 50):
         for m2 in range(205, m3, 50):

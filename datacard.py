@@ -1,3 +1,4 @@
+import math
 import ROOT
 
 LUMI = '19712.'
@@ -8,9 +9,21 @@ class Process(object):
     def __init__(self, name, channel, rate, count, signal = False):
         self.name = name
         self.channel = channel
-        self.rate = rate
-        self.count = count
         self.signal = signal
+
+        self._rates = [(rate, count)]
+
+    def addRate(self, rate, count):
+        self._rates.append((rate, count))
+
+    def rate(self):
+        return sum([r for r, c in self._rates])
+
+    def count(self):
+        # effective count = (sum{count * w})^2 / sum{count * w^2}
+        R2 = math.pow(self.rate(), 2.)
+        D = sum([r * r / c for r, c in self._rates])
+        return int(round(R2 / D))
 
 
 class Channel(object):
@@ -25,14 +38,8 @@ class Channel(object):
     def addProcess(self, name, rate, count, signal = False):
         self.processes[name] = Process(name, self, rate, count, signal = signal)
 
-    def setProcess(self, name, rate, count, signal = False):
-        process = self.processes[name]
-        process.rate = rate
-        process.count = count
-        process.signal = signal
-
     def bkgTotal(self):
-        return reduce(lambda x, y: x + y, [p.rate for p in self.processes.values() if not p.signal])
+        return sum([p.rate() for p in self.processes.values() if not p.signal])
 
 
 def getRateAndCount(sample, cut, weight = ''):
@@ -168,12 +175,12 @@ def writeDataCard(channels, nuisances, cardName):
         binLine += ([ch] * (len(channel.processes)))
         procNameLine.append('signal')
         procIDLine.append('0')
-        rateLine.append('%.3e' % channel.processes['signal'].rate)
+        rateLine.append('%.3e' % channel.processes['signal'].rate())
         bkgID = 1
         for proc in bkgNames:
             procNameLine.append(proc)
             procIDLine.append(str(bkgID))
-            rateLine.append('%.3e' % channel.processes[proc].rate)
+            rateLine.append('%.3e' % channel.processes[proc].rate())
             bkgID += 1
 
     lines.append(binLine)
@@ -192,7 +199,7 @@ def writeDataCard(channels, nuisances, cardName):
             channel = channels[ch]
             for proc in ['signal'] + bkgNames:
                 process = channel.processes[proc]
-                if process in nuisance and nuisance[process] > 0.001:
+                if process in nuisance and abs(nuisance[process]) >= 0.001:
                     line.append('%9.3f' % (1. + nuisance[process]))
                 else:
                     line.append('-')
@@ -204,12 +211,12 @@ def writeDataCard(channels, nuisances, cardName):
         channel = channels[ch]
         for proc in ['signal'] + bkgNames:
             process = channel.processes[proc]
-            if process.count == 0: continue
+            if process.count() == 0: continue
 
-            line = [ch + '_' + proc + ' gmN ' + str(process.count)]
+            line = [ch + '_' + proc + ' gmN ' + str(process.count())]
             for chproc in [(c, p) for c in channelNames for p in ['signal'] + bkgNames]:
                 if chproc == (ch, proc):
-                    line.append('%.2e' % (process.rate / process.count))
+                    line.append('%.2e' % (process.rate() / process.count()))
                 else:
                     line.append('-')
             
