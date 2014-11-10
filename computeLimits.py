@@ -11,14 +11,14 @@ import ROOT
 
 ROOT.gROOT.SetBatch(True)
 
-from datacard import *
+import datacard
 
 SETENV = 'cd /afs/cern.ch/user/y/yiiyama/cmssw/Combine612; eval `scram runtime -sh`;'
 XSECDIR = '/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs'
 FULLCLS = False
 FORCEPROF = False
 
-def getLimits(fileName, calculate = False):
+def getLimits(fileName, vLimits, calculate = False):
     """
     Extract median and +-1/2 sigma expected limits from a 6-entry tree output from combine. If calculate = True, tree is assumed to contain raw data (one toy per entry).
     """
@@ -27,14 +27,13 @@ def getLimits(fileName, calculate = False):
     resTree = resFile.Get('limit')
 
     resTree.SetEstimate(resTree.GetEntries() + 1)
-    nEntries = resTree.Draw('quantileExpected:limit', 'limit > 0.', 'goff') # condition to avoid nans
+    nEntries = resTree.Draw('quantileExpected:limit:iToy', 'limit > 0.', 'goff') # condition to avoid nans
     quantiles = resTree.GetV1()
     rvalues = resTree.GetV2()
-
-    limits = {}
+    toyIndices = resTree.GetV3()
 
     if calculate:
-        rArr = [rvalues[i] for i in range(nEntries)]
+        rArr = [rvalues[i] for i in range(nEntries) if toyIndices[i] > 0]
 
         rArr.sort()
 
@@ -50,14 +49,23 @@ def getLimits(fileName, calculate = False):
 
         n = len(rArr)
 
-        limits['m2s'] = rArr[int(0.05 * n)]
-        limits['m1s'] = rArr[int(0.32 * n)]
-        limits['med'] = rArr[int(0.5 * n)]
-        limits['p1s'] = rArr[int(0.68 * n)]
-        limits['p2s'] = rArr[int(0.95 * n)]
-        limits['obs'] = 0.
+        vLimits['m2s'][0] = rArr[int(0.05 * n)]
+        vLimits['m1s'][0] = rArr[int(0.32 * n)]
+        vLimits['med'][0] = rArr[int(0.5 * n)]
+        vLimits['p1s'][0] = rArr[int(0.68 * n)]
+        vLimits['p2s'][0] = rArr[int(0.95 * n)]
+
+        try:
+            obsIndex = next(i for i in range(nEntries) if toyIndices[i] == 0)
+            vLimits['obs'][0] = rvalues[obsIndex]
+        except:
+            return False
+
+        return True
 
     else:
+        limSet = set()
+        
         for iEntry in range(nEntries):
             if quantiles[iEntry] < 0.: quant = 'obs'
             elif quantiles[iEntry] < 0.03: quant = 'm2s'
@@ -65,12 +73,14 @@ def getLimits(fileName, calculate = False):
             elif quantiles[iEntry] < 0.6: quant = 'med'
             elif quantiles[iEntry] < 0.9: quant = 'p1s'
             else: quant = 'p2s'
-    
-            limits[quant] = rvalues[iEntry]
 
-    return limits
+            limSet.add(quant)
+            
+            vLimits[quant][0] = rvalues[iEntry]
 
+        return len(quant) == 6
 
+        
 def writeLog(header, content = ''):
     sys.stdout.write('-' * 20)
     sys.stdout.write(' ' + header + ' ')
@@ -79,7 +89,7 @@ def writeLog(header, content = ''):
     sys.stdout.write(content + '\n')
 
 
-def asymptotic(card, workdir):
+def asymptotic(card, workdir, vLimits):
     """
     Run combine in asymptotic mode and return the resulting expected limits in the form of python dict (using getLimits)
     """
@@ -106,10 +116,10 @@ def asymptotic(card, workdir):
     else:
         raise RuntimeError('No asymptotic result found')
 
-    return getLimits(workdir + '/' + fileName)
+    return getLimits(workdir + '/' + fileName, vLimits)
 
 
-def profileLikelihood(card, workdir):
+def profileLikelihood(card, workdir, vLimits):
     """
     Run combine in profile likelihood mode and return the resulting expected limits in the form of python dict (using getLimits)
     """
@@ -141,28 +151,17 @@ def profileLikelihood(card, workdir):
 
         procs.append((seed, proc))
 
-    writeLog('Merge ProfileLikelihood')
-
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd ProfileLikelihood.root higgsCombineTest.ProfileLikelihood.*.root 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-    proc.communicate()
-
-    limits = getLimits(workdir + '/ProfileLikelihood.root', calculate = True)
-
     proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n Obs -M ProfileLikelihood -s -1 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
     output = proc.communicate()[0]
 
     writeLog('ProfileLikelihood Observed', output)
 
-    for fileName in os.listdir(workdir):
-        if 'higgsCombineObs.ProfileLikelihood.' in fileName: break
-    else:
-        raise RuntimeError('No profile likelihood result found')
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd ProfileLikelihood.root higgsCombine*.ProfileLikelihood.*.root 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    output = proc.communicate()[0]
 
-    obsLim = getLimits(workdir + '/' + fileName)
+    writeLog('Merge ProfileLikelihood', output)
 
-    limits.update(obsLim)
-
-    return limits
+    return getLimits(workdir + '/ProfileLikelihood.root', vLimits, calculate = True)
 
 
 def makeGrid(bounds, card, workdir):
@@ -223,7 +222,7 @@ def fullCLs(card, workdir):
     proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd HybridFullCLs.root higgsCombineFullCLs.HybridNew.*.root 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
     proc.communicate()
 
-    return getLimits(workdir + '/HybridFullCLs.root')
+    return getLimits(workdir + '/HybridFullCLs.root', vLimits)
 
 
 def computeLimits(model, point, channels, outputdir):
@@ -244,143 +243,76 @@ def computeLimits(model, point, channels, outputdir):
     except OSError:
         pass
 
+    # Results are written into a tree (to be merged with calculations for all other signal points)
+
+    limitPoints = ['obs', 'med', 'm2s', 'm1s', 'p1s', 'p2s']
+
+    outputFile = ROOT.TFile.Open(workdir + '/' + pointName + '.root', 'recreate')
+    limitTree = ROOT.TTree('limitTree', 'Limit Tree')
+
+    vPointName = array.array('c', pointName + '\0')
+    vMethod = array.array('c', '\0' * 64)
+    vLimits = dict([(p, array.array('d', [0.])) for p in limitPoints])
+
+    limitTree.Branch('pointName', vPointName, 'pointName/C')
+    limitTree.Branch('method', vMethod, 'method/C')
+    for p in limitPoints:
+        limitTree.Branch(p, vLimits[p], p + '/D')
+
     cardPath = workdir + '/' + pointName + '.dat'
 
-    writeDataCard(channels, cardPath)
+    datacard.writeDataCard(channels, cardPath)
 
     writeLog('Calculating asymptotic limits')
+    method = 'asymptotic'
 
-    limits = asymptotic(cardPath, workdir)
+    converged = asymptotic(cardPath, workdir, vLimits)
 
-    if FORCEPROF or len(limits) != 6:
-        if len(limits) != 6: print 'Asymptotic method did not converge.'
+    if converged:
+        for iC in range(len(method)):
+            vMethod[iC] = method[iC]
+            vMethod[iC + 1] = '\0'
+            
+        limitTree.Fill()
+    else:
+        print 'Asymptotic method did not converge.'
+
+    if FORCEPROF or not converged:
         writeLog('Using profile likelihood')
+        method = 'profileLikelihood'
 
-        limits = profileLikelihood(cardPath, workdir)
+        if profileLikelihood(cardPath, workdir, vLimits):
+            for iC in range(len(method)):
+                vMethod[iC] = method[iC]
+                vMethod[iC + 1] = '\0'
+            
+            limitTree.Fill()
 
     if FULLCLS:
+        if limitTree.GetEntries() == 0:
+            writeLog('No estimate of bounds for grid production.')
+            sys.exit(1)
+        
         writeLog('Calculating full CLs')
+        method = 'fullCLs'
 
-        makeGrid((limits['m2s'], limits['p2s']), cardPath, workdir)
-        limits = expected(cardPath, workdir)
+        makeGrid((vLimits['m2s'][0], vLimits['p2s'][0]), cardPath, workdir)
 
-    if len(limits) != 6:
+        if fullCLs(cardPath, workdir, vLimits)
+            for iC in range(len(method)):
+                vMethod[iC] = method[iC]
+                vMethod[iC + 1] = '\0'
+        
+            limitTree.Fill()
+
+    if limitTree.GetEntries() == 0:
         writeLog('Failed to calculate limits.')
         sys.exit(1)
 
-    writeLog('limits', str(limits))
-    writeLog('Writing output')
-        
-    # Write result to a single-entry tree (to be merged with calculations for all other signal points)
+    limitTree.Scan('*')
 
-    xsecs = {}
-    nEvents = {}
-
-    if model == 'T5wg+TChiwg':
-        with open(XSECDIR + '/T5wg.xsecs') as xsecsource:
-            pname = 'T5wg_' + point
-            for line in xsecsource:
-                p, c, u, n = line.strip().split()
-                if p != pname: continue
-
-                xsecs[p] = (float(c), float(u))
-                nEvents[p] = int(n)
-                break
-            else:
-                raise RuntimeError('No point ' + pname + ' found')
-
-        with open(XSECDIR + '/TChiwg.xsecs') as xsecsource:
-            pname = 'TChiwg_' + point[point.find('_') + 1:]
-            for line in xsecsource:
-                p, c, u, n = line.strip().split()
-                if p != pname: continue
-
-                xsecs[p] = (float(c) / 0.326, float(u)) # TChiwg_suppl generated with lepton filter
-                nEvents[p] = int(n)
-                break
-            else:
-                raise RuntimeError('No point ' + pname + ' found')
-        
-    elif model == 'Spectra_gW':
-        with open(XSECDIR + '/' + model + '.xsecs') as xsecsource:
-            for line in xsecsource:
-                p, c, u, n = line.strip().split()
-                if pointName not in p: continue
-
-                xsecs[p] = (float(c), float(u))
-                nEvents[p] = int(n)
-
-            if len(xsecs) == 0:
-                raise RuntimeError('No point ' + pointName + ' found')
-
-    else:
-        with open(XSECDIR + '/' + model + '.xsecs') as xsecsource:
-            for line in xsecsource:
-                p, c, u, n = line.strip().split()
-                if p != pointName: continue
-
-                xsecs[p] = (float(c), float(u))
-                nEvents[p] = int(n)
-                break
-            else:
-                raise RuntimeError('No point ' + pointName + ' found')
-    
-    outputFile = ROOT.TFile.Open(workdir + '/' + pointName + '.root', 'recreate')
-    output = ROOT.TTree('limitTree', 'Limit Tree')
-
-    vPointName = array.array('c', pointName + '\0')
-    vPhysProc = array.array('c', '\0' * 100)
-    vXsec = array.array('d', [0.])
-    vXsecErr = array.array('d', [0.])
-    vLimObs = array.array('d', [0.])
-    vLimMed = array.array('d', [0.])
-    vLimM2s = array.array('d', [0.])
-    vLimM1s = array.array('d', [0.])
-    vLimP1s = array.array('d', [0.])
-    vLimP2s = array.array('d', [0.])
-    vNEvents = array.array('i', [0])
-    vYield = array.array('i', [0] * len(channels))
-
-    channelNames = sorted(channels.keys())
-                
-    output.Branch('pointName', vPointName, 'pointName/C')
-    output.Branch('physProc', vPhysProc, 'physProc/C')
-    output.Branch('xsec', vXsec, 'xsec/D')
-    output.Branch('xsecErr', vXsecErr, 'xsecErr/D')
-    output.Branch('limObs', vLimObs, 'limObs/D')
-    output.Branch('limMed', vLimMed, 'limMed/D')
-    output.Branch('limM2s', vLimM2s, 'limM2s/D')
-    output.Branch('limM1s', vLimM1s, 'limM1s/D')
-    output.Branch('limP1s', vLimP1s, 'limP1s/D')
-    output.Branch('limP2s', vLimP2s, 'limP2s/D')
-    output.Branch('nEvents', vNEvents, 'nEvents/I')
-    output.Branch('yield', vYield, channelNames[0] + '/I:' + ':'.join(channelNames[1:]))
-
-    vLimObs[0] = limits['obs']
-    vLimMed[0] = limits['med']
-    vLimM2s[0] = limits['m2s']
-    vLimM1s[0] = limits['m1s']
-    vLimP1s[0] = limits['p1s']
-    vLimP2s[0] = limits['p2s']
-
-    for proc, (xsec, relErr) in xsecs.items():
-        for iC in range(len(proc)):
-            vPhysProc[iC] = proc[iC]
-        vXsec[0] = xsec
-        vXsecErr[0] = relErr
-        vNEvents[0] = nEvents[proc]
-        for iCh in range(len(channelNames)):
-            ch = channelNames[iCh]
-            signal = channels[ch].processes['signal']
-            try:
-                vYield[iCh] = signal.rates[proc][1]
-            except KeyError:
-                vYield[iCh] = 0
-
-        output.Fill()
-
-    outputFile.Write()
-    outputFile.Close()
+    limitTreeFile.Write()
+    limitTreeFile.Close()
 
     shutil.copyfile(workdir + '/' + pointName + '.root', outputdir + '/' + pointName + '.root')
 

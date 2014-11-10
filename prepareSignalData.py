@@ -2,7 +2,7 @@ import sys
 import os
 import math
 import array
-from datacard import *
+import datacard
 
 sys.path.append('/afs/cern.ch/user/y/yiiyama/src/GammaL/plotstack')
 import rootconfig
@@ -49,13 +49,13 @@ def getISRUncert(model, pointName, samplesAndScales, cut, nominal):
 
     rate = 0.
     for sample, s in samplesAndScales:
-        rate += getRateAndCount(sample, cut, weight)[0] * s
+        rate += datacard.getRateAndCount(sample, cut, weight)[0] * s
 
     shift = (rate - nominal) / nominal
 
     if abs(shift) < 5.e-4: return 0.
 
-    return boundVal(shift)
+    return datacard.boundVal(shift)
 
 
 def setSignal(model, pointName, processes, channels, ratescale):
@@ -97,7 +97,7 @@ def setSignal(model, pointName, processes, channels, ratescale):
         rate *= ratescale
 
         if channelName not in processes:
-            processes[channelName] = Process('signal', signal = True)
+            processes[channelName] = datacard.Process('signal', signal = True)
 
         process = processes[channelName]
 
@@ -118,7 +118,7 @@ def setSignal(model, pointName, processes, channels, ratescale):
     
                 process.nuisances['isr'] = isrUncert
 
-            jesUncert = getJESUncert([(candSample, 1.)], channel.cut, rate)
+            jesUncert = datacard.getJESUncert([(candSample, 1.)], channel.cut, rate)
 
             if 'jes' in process.nuisances:
                 jesUncert *= rate
@@ -127,7 +127,7 @@ def setSignal(model, pointName, processes, channels, ratescale):
 
             process.nuisances['jes'] = jesUncert
 
-        process.addRate(model + '_' + pointName, rate, count)
+        process.addRate(model + '_' + pointName, rate, count, genInfo = dataset.GenInfo(dataset.sigma, dataset.sigmaRelErr, dataset.nEvents))
 
     for source in scaleSources.values():
         source.Close()

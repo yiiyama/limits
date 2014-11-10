@@ -150,47 +150,35 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     if not outputName:
         outputName = model
 
-    # Tree with information on one signal point per row. Columns are the name, cross section, median and +-1/2 sigma xsec upper bounds of the point.
+    # Tree with information on one signal point per row. Columns are the name, calculation method, median and +-1/2 sigma signal strength upper bounds of the point.
     inputTree = ROOT.TChain('limitTree')
     inputTree.Add(sourceName)
 
-    yieldLeaves = [l.GetName() for l in inputTree.GetBranch('yield').GetListOfLeaves()]
-
     vPointName = array.array('c', ' ' * 100)
-    vPhysProc = array.array('c', ' ' * 100)
-    vXsec = array.array('d', [0.])
-    vXsecErr = array.array('d', [0.])
+    vMethod = array.array('c', ' ' * 64)
     vLimObs = array.array('d', [0.])
     vLimMed = array.array('d', [0.])
     vLimM2s = array.array('d', [0.])
     vLimM1s = array.array('d', [0.])
     vLimP1s = array.array('d', [0.])
     vLimP2s = array.array('d', [0.])
-    vNEvents = array.array('i', [0])
-    vYield = array.array('i', [0] * len(yieldLeaves))
             
     inputTree.SetBranchAddress('pointName', vPointName)
-    inputTree.SetBranchAddress('physProc', vPhysProc)
-    inputTree.SetBranchAddress('xsec', vXsec)
-    inputTree.SetBranchAddress('xsecErr', vXsecErr)
-    inputTree.SetBranchAddress('limObs', vLimObs)
-    inputTree.SetBranchAddress('limMed', vLimMed)
-    inputTree.SetBranchAddress('limM2s', vLimM2s)
-    inputTree.SetBranchAddress('limM1s', vLimM1s)
-    inputTree.SetBranchAddress('limP1s', vLimP1s)
-    inputTree.SetBranchAddress('limP2s', vLimP2s)
-    inputTree.SetBranchAddress('nEvents', vNEvents)
-    inputTree.SetBranchAddress('yield', vYield)
+    inputTree.SetBranchAddress('method', vMethod)
+    inputTree.SetBranchAddress('obs', vLimObs)
+    inputTree.SetBranchAddress('med', vLimMed)
+    inputTree.SetBranchAddress('m2s', vLimM2s)
+    inputTree.SetBranchAddress('m1s', vLimM1s)
+    inputTree.SetBranchAddress('p1s', vLimP1s)
+    inputTree.SetBranchAddress('p2s', vLimP2s)
 
-    xsecs = {}
-    xsecErr2 = {}
+    methodPriority = {'asymptotic': 0, 'profileLikelihood': 1, 'fullCLs': 2}
+
     limits = dict([(i, {}) for i in range(-2, 4)])
-    nEventsW = {}
-    nEventsW2 = {}
-    yieldsW = {'Electron': {}, 'Muon': {}}
-    yieldsW2 = {'Electron': {}, 'Muon': {}}
-    
+   
     centers = [[], []]
+    bestMethods = {}
+    coords = {}
 
     iEntry = 0
     while inputTree.GetEntry(iEntry) > 0:
@@ -198,45 +186,55 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         
         pointStr = vPointName.tostring()
         pointName = pointStr[0:pointStr.find('\0')]
+        methodName = vMethod.tostring()
 
         matches = re.match(pointFormat, pointName)
         if not matches:
             raise RuntimeError('Invalid point name ' + pointName)
 
+        if pointName in bestMethods:
+            if bestMethods[pointName] > methodPriority[methodName]:
+                continue
+
+        bestMethods[pointName] = methodPriority[methodName]
+
         coord = tuple(map(int, [matches.group(iD + 1) for iD in range(ndim)]))
-        if coord not in xsecs:
-            for iD in range(ndim):
-                centers[iD].append(coord[iD])
-    
-            xsecs[coord] = 0.
-            xsecErr2[coord] = 0.
-            limits[3][coord] = vLimObs[0]
-            limits[-2][coord] = vLimM2s[0]
-            limits[-1][coord] = vLimM1s[0]
-            limits[0][coord] = vLimMed[0]
-            limits[1][coord] = vLimP1s[0]
-            limits[2][coord] = vLimP2s[0]
+        coords[pointName] = coord
 
-            nEventsW[coord] = 0.
-            nEventsW2[coord] = 0.
-            yieldsW['Electron'][coord] = 0.
-            yieldsW['Muon'][coord] = 0.
-            yieldsW2['Electron'][coord] = 0.
-            yieldsW2['Muon'][coord] = 0.
+        limits[3][coord] = vLimObs[0]
+        limits[-2][coord] = vLimM2s[0]
+        limits[-1][coord] = vLimM1s[0]
+        limits[0][coord] = vLimMed[0]
+        limits[1][coord] = vLimP1s[0]
+        limits[2][coord] = vLimP2s[0]
 
-        xsecs[coord] += vXsec[0] * xsecScale
-        xsecErr2[coord] += math.pow(vXsecErr[0] * xsecScale, 2.)
-        nEventsW[coord] += vNEvents[0] * vXsec[0]
-        nEventsW2[coord] += vNEvents[0] * vXsec[0] * vXsec[0]
-        for iY in range(len(yieldLeaves)):
-            name = yieldLeaves[iY]
-            if name.startswith('el'):
+    xsecs = {}
+    xsecErr2 = {}
+    nEventsW = {}
+    nEventsW2 = {}
+    yieldsW = {'Electron': {}, 'Muon': {}}
+    yieldsW2 = {'Electron': {}, 'Muon': {}}
+        
+    with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + model + '.pkl', 'b') as pickleSource:
+        datacard = pickle.load(pickleSource)
+
+    for pointName, coord in coords.items():
+        processes = datacard[pointName]
+
+        for channelName, process in processes.items():
+            if channelName.startswith('el'):
                 lepton = 'Electron'
-            elif name.startswith('mu'):
+            elif channelName.startswith('mu'):
                 lepton = 'Muon'
+            
+            for phys, genInfo in process.genInfo.items():
+                xsecs[coord] += genInfo.xsec * xsecScale
+                xsecErr2[coord] += math.pow(genInfo.relErr * genInfo.xsec * xsecScale, 2.)
+                nEventsW[coord] += genInfo.nEvents * genInfo.xsec
+                nEventsW2[coord] += genInfo.nEvents * genInfo.xsec * genInfo.xsec
 
-            yieldsW[lepton][coord] += vYield[iY] * vXsec[0]
-            yieldsW2[lepton][coord] += vYield[iY] * vXsec[0] * vXsec[0]
+                yieldsW[lepton][coord] += process.rates[phys][1] * genInfo.xsec
+                yieldsW2[lepton][coord] += process.rates[phys][1] * genInfo.xsec * genInfo.xsec
 
     xsecErrors = dict([(coord, math.sqrt(err2)) for coord, err2 in xsecErr2.items()])
             

@@ -2,7 +2,7 @@ import sys
 import os
 import ROOT
 
-from datacard import *
+import datacard
 
 sys.path.append('/afs/cern.ch/user/y/yiiyama/src/GammaL/plotstack')
 import rootconfig
@@ -18,7 +18,7 @@ def setupChannel(channel):
     scaleSource = ROOT.TFile.Open('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/' + channel.stackName + '.root')
     vgscale = scaleSource.Get('TemplateFitError/VGamma').GetY()[0]
     scaleGr = scaleSource.Get('TemplateFitError/VGammaNoEff')
-    vgscaleRelErr = boundVal(scaleGr.GetErrorY(0) / scaleGr.GetY()[0])
+    vgscaleRelErr = datacard.boundVal(scaleGr.GetErrorY(0) / scaleGr.GetY()[0])
     jlscale = scaleSource.Get('TemplateFitError/QCD').GetY()[0]
     scaleSource.Close()
 
@@ -26,14 +26,14 @@ def setupChannel(channel):
         if group.category == Group.OBSERVED:
             count = 0
             for sample in group.samples:
-                count += getRateAndCount(sample, channel.cut)[1]
+                count += datacard.getRateAndCount(sample, channel.cut)[1]
             channel.observed = count
 
         elif group.category == Group.BACKGROUND:
-            process = Process(group.name)
+            process = datacard.Process(group.name)
 
             for sample in group.samples:
-                rate, count = getRateAndCount(sample, channel.cut)
+                rate, count = datacard.getRateAndCount(sample, channel.cut)
                 if group.name == 'VGamma':
                     rate *= vgscale
                 elif group.name == 'JLFake':
@@ -74,7 +74,7 @@ def setupChannel(channel):
                     process.nuisances['ewkxsec'] = 0.5
                     scale = 1.
 
-                process.nuisances['jes'] = getJESUncert([(sample, scale) for sample in group.samples], channel.cut, process.rate())
+                process.nuisances['jes'] = datacard.getJESUncert([(sample, scale) for sample in group.samples], channel.cut, process.rate())
 
 
 def vgshape(group, channel, vgscale, nominal):
@@ -111,7 +111,7 @@ def vgshape(group, channel, vgscale, nominal):
 
     rate *= vgscale
 
-    return boundVal(abs(rate - nominal) / nominal)
+    return datacard.boundVal(abs(rate - nominal) / nominal)
 
 
 if __name__ == '__main__':
@@ -172,7 +172,7 @@ if __name__ == '__main__':
                     channelName = lep + ptCutName + htCutName + str(int(metLow))
                     
                     print channelName
-                    ch = Channel(channelName, lepton, stack, cut)
+                    ch = datacard.Channel(channelName, lepton, stack, cut)
                     setupChannel(ch)
                     channels[channelName] = ch
 

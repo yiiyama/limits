@@ -1,9 +1,12 @@
 import math
+import collections
 import ROOT
 
 LUMI = '19712.'
 
 treeStore = {}
+
+GenInfo = collections.namedtuple('GenInfo', ['xsec', 'relErr', 'nEvents'])
 
 class Process(object):
     def __init__(self, name, signal = False):
@@ -12,10 +15,13 @@ class Process(object):
         self.nuisances = {}
 
         self.rates = {}
+        self.genInfo = {} # for signal MC, proc -> GenInfo
 
-    def addRate(self, sample, rate, count):
+    def addRate(self, sample, rate, count, genInfo = None):
         if count == 0: return
         self.rates[sample] = (rate, count)
+        if genInfo:
+            self.genInfo[sample] = genInfo
 
     def rate(self):
         return sum([r for r, c in self.rates.values()])
