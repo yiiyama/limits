@@ -166,8 +166,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     vLimM1s = array.array('d', [0.])
     vLimP1s = array.array('d', [0.])
     vLimP2s = array.array('d', [0.])
-    vNEvents = array.array('i', [0.])
-    vYield = array.array('i', [0.] * len(yieldLeaves))
+    vNEvents = array.array('i', [0])
+    vYield = array.array('i', [0] * len(yieldLeaves))
             
     inputTree.SetBranchAddress('pointName', vPointName)
     inputTree.SetBranchAddress('physProc', vPhysProc)
@@ -183,7 +183,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     inputTree.SetBranchAddress('yield', vYield)
 
     xsecs = {}
-    xsecErrors = {}
+    xsecErr2 = {}
     limits = dict([(i, {}) for i in range(-2, 4)])
     nEventsW = {}
     nEventsW2 = {}
@@ -208,8 +208,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
             for iD in range(ndim):
                 centers[iD].append(coord[iD])
     
-            xsecs[coord] = vXsec[0] * xsecScale
-            xsecErrors[coord] = vXsecErr[0] * xsecScale
+            xsecs[coord] = 0.
+            xsecErr2[coord] = 0.
             limits[3][coord] = vLimObs[0]
             limits[-2][coord] = vLimM2s[0]
             limits[-1][coord] = vLimM1s[0]
@@ -224,6 +224,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
             yieldsW2['Electron'][coord] = 0.
             yieldsW2['Muon'][coord] = 0.
 
+        xsecs[coord] += vXsec[0] * xsecScale
+        xsecErr2[coord] += math.pow(vXsecErr[0] * xsecScale, 2.)
         nEventsW[coord] += vNEvents[0] * vXsec[0]
         nEventsW2[coord] += vNEvents[0] * vXsec[0] * vXsec[0]
         for iY in range(len(yieldLeaves)):
@@ -236,6 +238,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
             yieldsW[lepton][coord] += vYield[iY] * vXsec[0]
             yieldsW2[lepton][coord] += vYield[iY] * vXsec[0] * vXsec[0]
 
+    xsecErrors = dict([(coord, math.sqrt(err2)) for coord, err2 in xsecErr2.items()])
+            
     # effective
     #  . number of events = (sum_proc{N*sigma})^2 / sum_proc{N*sigma^2}
     #  . yield = (sum_proc_ch{y*sigma})^2 / sum_proc_ch{y*sigma^2}

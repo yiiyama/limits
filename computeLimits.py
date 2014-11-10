@@ -16,7 +16,7 @@ from datacard import *
 SETENV = 'cd /afs/cern.ch/user/y/yiiyama/cmssw/Combine612; eval `scram runtime -sh`;'
 XSECDIR = '/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs'
 FULLCLS = False
-FORCEPROF = True
+FORCEPROF = False
 
 def getLimits(fileName, calculate = False):
     """
@@ -76,7 +76,7 @@ def writeLog(header, content = ''):
     sys.stdout.write(' ' + header + ' ')
     sys.stdout.write('-' * 20)
     sys.stdout.write('\n')
-    sys.stdout.write(content)
+    sys.stdout.write(content + '\n')
 
 
 def asymptotic(card, workdir):
