@@ -634,6 +634,9 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     
         background.Draw(DRAWOPTION)
 
+        background.GetXaxis().SetTitleOffset(1.3)
+        background.GetYaxis().SetTitleOffset(1.3)
+
         zaxis = background.GetZaxis()
         zaxis.SetTickLength(0.02)
         palette = background.GetListOfFunctions().FindObject('palette')
@@ -798,7 +801,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         line.SetLineColor(ROOT.kBlack)
         line = header.AddLine(0.02, 0.39, 0.08, 0.39)
         line.SetLineWidth(4)
-        line.SetLineStyle(ROOT.kDashed)
+        line.SetLineStyle(ROOT.kSolid)
         line.SetLineColor(ROOT.kBlack)
         line = header.AddLine(0.02, 0.35, 0.08, 0.35)
         line.SetLineWidth(2)
@@ -812,7 +815,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         line.SetLineColor(ROOT.kRed)
         line = header.AddLine(0.02, 0.14, 0.08, 0.14)
         line.SetLineWidth(4)
-        line.SetLineStyle(ROOT.kDashed)
+        line.SetLineStyle(ROOT.kSolid)
         line.SetLineColor(ROOT.kRed)
         line = header.AddLine(0.02, 0.1, 0.08, 0.1)
         line.SetLineWidth(2)
