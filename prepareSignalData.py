@@ -58,7 +58,7 @@ def getISRUncert(model, pointName, samplesAndScales, cut, nominal):
     return boundVal(shift)
 
 
-def setSignal(model, pointName, processes, channels):
+def setSignal(model, pointName, processes, channels, ratescale):
 
     dataset = getDataset(model, pointName)
     if not dataset: return
@@ -94,6 +94,8 @@ def setSignal(model, pointName, processes, channels):
 
         if rate < 0.: rate = 0.
 
+        rate *= ratescale
+
         if channelName not in processes:
             processes[channelName] = Process('signal', signal = True)
 
@@ -104,7 +106,7 @@ def setSignal(model, pointName, processes, channels):
             process.nuisances['effcorr'] = 0.08
 
             if model == 'Spectra_gW':
-                nuisances['isr'] = 0.05
+                process.nuisances['isr'] = 0.05
             else:
                 samplesAndScales = [(candSample, 1.), (egSample, -1.), (jgSample, -1.), (jlSample, -jlScale)]
                 isrUncert = getISRUncert(model, pointName, samplesAndScales, channel.cut, rate)
@@ -158,13 +160,15 @@ if __name__ == '__main__':
 
     tmpFile = ROOT.TFile.Open(os.environ['TMPDIR'] + '/writeDataCard_signal_tmp.root', 'recreate')
 
+    scale = {}
     pointList = {}
+    
     pointList['TChiwg'] = {}
     for mchi in range(100, 810, 10):
         pointList['TChiwg']['%d' % mchi] = [('TChiwg', str(mchi))]
 
     pointList['T5wg'] = {}
-    for mglu in range(400, 1550, 50):
+    for mglu in range(700, 1550, 50):
         for mchi in range(25, mglu, 50):
             pointList['T5wg']['%d_%d' % (mglu, mchi)] = [('T5wg', '%d_%d' % (mglu, mchi))]
 
@@ -177,6 +181,18 @@ if __name__ == '__main__':
     for m3 in range(715, 1565, 50):
         for m2 in range(205, m3, 50):
             pointList['Spectra_gW']['M3_%d_M2_%d' % (m3, m2)] = [('Spectra_gW', 'M3_%d_M2_%d_%s' % (m3, m2, proc)) for proc in ['gg', 'ncp', 'ncm']]
+
+    pointList['Spectra_gW_gg'] = {}
+    for m3 in range(715, 1565, 50):
+        for m2 in range(205, m3, 50):
+            pointList['Spectra_gW_gg']['M3_%d_M2_%d' % (m3, m2)] = [('Spectra_gW', 'M3_%d_M2_%d_gg' % (m3, m2))]
+    scale['Spectra_gW_gg'] = 1. / (4. / 9. * 0.23) * 0.5
+
+    pointList['Spectra_gW_nc'] = {}
+    for m3 in range(715, 1565, 50):
+        for m2 in range(205, m3, 50):
+            pointList['Spectra_gW_nc']['M3_%d_M2_%d' % (m3, m2)] = [('Spectra_gW', 'M3_%d_M2_%d_%s' % (m3, m2, proc)) for proc in ['ncp', 'ncm']]
+    scale['Spectra_gW_nc'] = 1. / 0.23
 
     if options.model:
         models = [options.model]
@@ -193,6 +209,11 @@ if __name__ == '__main__':
             outputFileName += '_' + options.point
         outputFileName += '.pkl'
 
+        if model in scale:
+            ratescale = scale[model]
+        else:
+            ratescale = 1.
+
         outputFile = open(outputFileName, 'wb')
         data = {}
 
@@ -205,7 +226,7 @@ if __name__ == '__main__':
             signals = pointList[model][title]
             processes = {}
             for source, point in signals:
-                setSignal(source, point, processes, channels)
+                setSignal(source, point, processes, channels, ratescale)
 
             data[fullTitle] = processes
 

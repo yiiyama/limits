@@ -24,7 +24,10 @@ class Process(object):
         if len(self.rates) == 0: return 0
 
         # effective count = (sum{count * w})^2 / sum{count * w^2}
-        R2 = math.pow(self.rate(), 2.)
+        R = self.rate()
+        if R <= 0.: return 0
+
+        R2 = math.pow(R, 2.)
         D = sum([r * r / c for r, c in self.rates.values()])
         return int(round(R2 / D))
 

@@ -9,10 +9,14 @@ import re
 import pickle
 import ROOT
 
+ROOT.gROOT.SetBatch(True)
+
 from datacard import *
 
 SETENV = 'cd /afs/cern.ch/user/y/yiiyama/cmssw/Combine612; eval `scram runtime -sh`;'
+XSECDIR = '/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs'
 FULLCLS = False
+FORCEPROF = True
 
 def getLimits(fileName, calculate = False):
     """
@@ -80,18 +84,10 @@ def asymptotic(card, workdir):
     Run combine in asymptotic mode and return the resulting expected limits in the form of python dict (using getLimits)
     """
 
-    writeLog('Asymptotic')
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -M Asymptotic -s -1 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    output = proc.communicate()[0]
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -M Asymptotic -s -1 2>&1', shell = True, stdout = subprocess.PIPE)
-    output = ''
-    while proc.poll() is None:
-        output += proc.communicate()[0]
-        time.sleep(1)
-
-    try:
-        output += proc.communicate()[0]
-    except:
-        pass
+    writeLog('Asymptotic', output)
 
     # read the last line of r value calculation
     rLine = ''
@@ -120,61 +116,47 @@ def profileLikelihood(card, workdir):
 
     writeLog('ProfileLikelihood Expected')
 
-    outputs = {}
     procs = []
     seeds = [str(i) for i in range(1, 9)]
     while True:
-        while len(procs):
-            for seed, proc in procs:
-                try:
-                    outputs[seed] += proc.communicate()[0]
-                except:
-                    pass
+        for seed, proc in procs:
+            if proc.poll() is None: continue
 
-            try:
-                seed, proc = next(x for x in procs if x[1].poll() is not None)
+            output = proc.communicate()[0]
 
-                writeLog('Proc ' + seed, outputs[seed])
+            writeLog('Proc ' + seed, output)
 
-                procs.remove((seed, proc))
-
-            except StopIteration:
-                break
-
-        else:
-            if len(seeds) == 0: break
+            procs.remove((seed, proc))
         
-        if len(procs) >= 4 or len(seeds) == 0:
-            time.sleep(10)
+        if len(procs) == 0 and len(seeds) == 0: break
+
+        if len(procs) >= 4: continue
+
+        try:
+            seed = seeds.pop()
+        except IndexError:
             continue
 
-        seed = str(seeds.pop())
-
-        proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -M ProfileLikelihood -t 20 -s ' + seed + ' 2>&1', shell = True, stdout = subprocess.PIPE)
+        proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -M ProfileLikelihood -t 20 -s ' + seed + ' 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
 
         procs.append((seed, proc))
-        outputs[seed] = ''
 
     writeLog('Merge ProfileLikelihood')
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd ProfileLikelihood.root higgsCombineTest.ProfileLikelihood.*.root 2>&1', shell = True)
-    while proc.poll() is None:
-        time.sleep(1)
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd ProfileLikelihood.root higgsCombineTest.ProfileLikelihood.*.root 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    proc.communicate()
 
     limits = getLimits(workdir + '/ProfileLikelihood.root', calculate = True)
 
-    writeLog('ProfileLikelihood Observed')
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n Obs -M ProfileLikelihood -s -1 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    output = proc.communicate()[0]
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n Obs -M ProfileLikelihood -s -1 2>&1', shell = True, stdout = subprocess.PIPE)
-    output = ''
-    while proc.poll() is None:
-        output += proc.communicate()[0]
-        time.sleep(1)
+    writeLog('ProfileLikelihood Observed', output)
 
     for fileName in os.listdir(workdir):
         if 'higgsCombineObs.ProfileLikelihood.' in fileName: break
     else:
-        raise RuntimeError('No asymptotic result found')
+        raise RuntimeError('No profile likelihood result found')
 
     obsLim = getLimits(workdir + '/' + fileName)
 
@@ -191,44 +173,33 @@ def makeGrid(bounds, card, workdir):
     nSteps = 100
     rvalues = [bounds[0] + (bounds[1] - bounds[0]) / nSteps * i for i in range(nSteps)]
     procs = []
-    outputs = {}
     while True:
-        while len(procs):
-            for rval, proc in procs:
-                try:
-                    outputs[rval] += proc.communicate()[0]
-                except:
-                    pass
+        for rval, proc in procs:
+            if proc.poll() is None: continue
 
-            try:
-                rval, proc = next(x for x in procs if x[1].poll() is not None)
+            output = proc.communicate()[0]
 
-                writeLog('Grid ' + rval, outputs[rval])
+            writeLog('Grid ' + rval, output)
 
-                procs.remove((rval, proc))
+            procs.remove((rval, proc))
 
-            except StopIteration:
-                break
+        if len(procs) == 0 and len(rvalues) == 0: break
 
-        else:
-            if len(rvalues) == 0: break
-        
-        if len(procs) >= 4 or len(rvalues) == 0:
-            time.sleep(10)
+        if len(procs) >= 4: continue
+
+        try:
+            rval = '%.4f' % rvalues.pop()
+        except IndexError:
             continue
-
-        rval = '%.4f' % rvalues.pop()
 
         proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n Grid -M HybridNew -s -1 --freq --clsAcc 0 -T 1000 -i 1 --saveToys --saveHybridResult --singlePoint ' + rval, shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
 
         procs.append((rval, proc))
-        outputs[rval] = ''
 
     writeLog('Merge Grid')
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd HybridGrid.root higgsCombineGrid.HybridNew.*.root 2>&1', shell = True)
-    while proc.poll() is None:
-        time.sleep(1)
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd HybridGrid.root higgsCombineGrid.HybridNew.*.root 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    proc.communicate()
 
 
 def fullCLs(card, workdir):
@@ -236,24 +207,21 @@ def fullCLs(card, workdir):
     Run combine in HybridNew mode and return the resulting expected limits in the form of python dict (using getLimits)    
     """
 
-    writeLog('Observed')
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid HybridGrid.root 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    output = proc.communicate()[0]
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid HybridGrid.root 2>&1', shell = True)
-    while proc.poll() is None:
-        time.sleep(1)
+    writeLog('Observed', output)
 
     for quant in ['0.025', '0.16', '0.5', '0.84', '0.975']:
-        writeLog('Expected ' + quant)
-
-        proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid HybridGrid.root --expectedFromGrid ' + quant + ' 2>&1', shell = True)
-        while proc.poll() is None:
-            time.sleep(1)
+        proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid HybridGrid.root --expectedFromGrid ' + quant + ' 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+        output = proc.communicate()[0]
+        
+        writeLog('Expected ' + quant, output)
 
     writeLog('Merge FullCLs')
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd HybridFullCLs.root higgsCombineFullCLs.HybridNew.*.root 2>&1', shell = True)
-    while proc.poll() is None:
-        time.sleep(1)
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; hadd HybridFullCLs.root higgsCombineFullCLs.HybridNew.*.root 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    proc.communicate()
 
     return getLimits(workdir + '/HybridFullCLs.root')
 
@@ -280,70 +248,78 @@ def computeLimits(model, point, channels, outputdir):
 
     writeDataCard(channels, cardPath)
 
-    print 'Calculating asymptotic limits..'
+    writeLog('Calculating asymptotic limits')
 
     limits = asymptotic(cardPath, workdir)
 
-    if len(limits) != 6:
-        print 'Asymptotic method did not converge. Using profile likelihood..'
+    if FORCEPROF or len(limits) != 6:
+        if len(limits) != 6: print 'Asymptotic method did not converge.'
+        writeLog('Using profile likelihood')
 
         limits = profileLikelihood(cardPath, workdir)
 
     if FULLCLS:
-        print 'Calculating full CLs..'
+        writeLog('Calculating full CLs')
 
         makeGrid((limits['m2s'], limits['p2s']), cardPath, workdir)
         limits = expected(cardPath, workdir)
 
+    if len(limits) != 6:
+        writeLog('Failed to calculate limits.')
+        sys.exit(1)
+
+    writeLog('limits', str(limits))
+    writeLog('Writing output')
+        
     # Write result to a single-entry tree (to be merged with calculations for all other signal points)
 
     xsecs = {}
     nEvents = {}
 
     if model == 'T5wg+TChiwg':
-        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/T5wg.xsecs') as xsecsource:
+        with open(XSECDIR + '/T5wg.xsecs') as xsecsource:
             pname = 'T5wg_' + point
             for line in xsecsource:
                 p, c, u, n = line.strip().split()
                 if p != pname: continue
 
-                xsecs[p] = (float(c), math.pow(float(u) * float(c), 2.))
+                xsecs[p] = (float(c), float(u))
                 nEvents[p] = int(n)
                 break
             else:
                 raise RuntimeError('No point ' + pname + ' found')
 
-        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/TChiwg.xsecs') as xsecsource:
+        with open(XSECDIR + '/TChiwg.xsecs') as xsecsource:
             pname = 'TChiwg_' + point[point.find('_') + 1:]
             for line in xsecsource:
                 p, c, u, n = line.strip().split()
                 if p != pname: continue
 
-                xsecs[p] = (float(c) / 0.326, math.pow(float(u) * float(c) / 0.326, 2.)) # TChiwg_suppl generated with lepton filter
+                xsecs[p] = (float(c) / 0.326, float(u)) # TChiwg_suppl generated with lepton filter
                 nEvents[p] = int(n)
                 break
             else:
                 raise RuntimeError('No point ' + pname + ' found')
         
     elif model == 'Spectra_gW':
-        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/' + model + '.xsecs') as xsecsource:
+        with open(XSECDIR + '/' + model + '.xsecs') as xsecsource:
             for line in xsecsource:
                 p, c, u, n = line.strip().split()
                 if pointName not in p: continue
 
-                xsecs[p] = (float(c), math.pow(float(u) * float(c), 2.))
+                xsecs[p] = (float(c), float(u))
                 nEvents[p] = int(n)
 
             if len(xsecs) == 0:
                 raise RuntimeError('No point ' + pointName + ' found')
 
     else:
-        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/' + model + '.xsecs') as xsecsource:
+        with open(XSECDIR + '/' + model + '.xsecs') as xsecsource:
             for line in xsecsource:
                 p, c, u, n = line.strip().split()
                 if p != pointName: continue
 
-                xsecs[p] = (float(c), math.pow(float(u) * float(c), 2.))
+                xsecs[p] = (float(c), float(u))
                 nEvents[p] = int(n)
                 break
             else:
@@ -353,6 +329,7 @@ def computeLimits(model, point, channels, outputdir):
     output = ROOT.TTree('limitTree', 'Limit Tree')
 
     vPointName = array.array('c', pointName + '\0')
+    vPhysProc = array.array('c', '\0' * 100)
     vXsec = array.array('d', [0.])
     vXsecErr = array.array('d', [0.])
     vLimObs = array.array('d', [0.])
@@ -362,13 +339,12 @@ def computeLimits(model, point, channels, outputdir):
     vLimP1s = array.array('d', [0.])
     vLimP2s = array.array('d', [0.])
     vNEvents = array.array('i', [0])
-    vNEventsEff = array.array('d', [0.])
     vYield = array.array('i', [0] * len(channels))
-    vYieldEff = array.array('d', [0.] * len(channels))
 
     channelNames = sorted(channels.keys())
                 
     output.Branch('pointName', vPointName, 'pointName/C')
+    output.Branch('physProc', vPhysProc, 'physProc/C')
     output.Branch('xsec', vXsec, 'xsec/D')
     output.Branch('xsecErr', vXsecErr, 'xsecErr/D')
     output.Branch('limObs', vLimObs, 'limObs/D')
@@ -378,43 +354,30 @@ def computeLimits(model, point, channels, outputdir):
     output.Branch('limP1s', vLimP1s, 'limP1s/D')
     output.Branch('limP2s', vLimP2s, 'limP2s/D')
     output.Branch('nEvents', vNEvents, 'nEvents/I')
-    output.Branch('nEventsEff', vNEventsEff, 'nEventsEff/D')
     output.Branch('yield', vYield, channelNames[0] + '/I:' + ':'.join(channelNames[1:]))
-    output.Branch('yieldEff', vYieldEff, channelNames[0] + '/D:' + ':'.join(channelNames[1:]))
 
-    vXsec[0] = sum(x[0] for x in xsecs.values())
-    vXsecErr[0] = math.sqrt(sum(x[1] for x in xsecs.values())) / vXsec[0]
-    vNEvents[0] = sum(n for n in nEvents.values())
-    sumNSigma = sum(nEvents[p] * xsecs[p][0] for p in nEvents.keys())
-    sumNSigma2 = sum(nEvents[p] * xsecs[p][0] * xsecs[p][0] for p in nEvents.keys())
-    vNEventsEff[0] = math.pow(sumNSigma, 2.) / sumNSigma2
+    vLimObs[0] = limits['obs']
+    vLimMed[0] = limits['med']
+    vLimM2s[0] = limits['m2s']
+    vLimM1s[0] = limits['m1s']
+    vLimP1s[0] = limits['p1s']
+    vLimP2s[0] = limits['p2s']
 
-    for iCh in range(len(channelNames)):
-        ch = channelNames[iCh]
-        signal = channels[ch].processes['signal']
-        vYield[iCh] = sum(r[1] for r in signal.rates.values())
-        sumNSigma = 0.
-        sumNSigma2 = 0.
-        for p, (r, c) in signal.rates.items():
-            sumNSigma += c * xsecs[p][0]
-            sumNSigma2 += c * xsecs[p][0] * xsecs[p][0]
-            
-        if sumNSigma2 > 0.:
-            vYieldEff[iCh] = math.pow(sumNSigma, 2.) / sumNSigma2
-        else:
-            vYieldEff[iCh] = 0.
+    for proc, (xsec, relErr) in xsecs.items():
+        for iC in range(len(proc)):
+            vPhysProc[iC] = proc[iC]
+        vXsec[0] = xsec
+        vXsecErr[0] = relErr
+        vNEvents[0] = nEvents[proc]
+        for iCh in range(len(channelNames)):
+            ch = channelNames[iCh]
+            signal = channels[ch].processes['signal']
+            try:
+                vYield[iCh] = signal.rates[proc][1]
+            except KeyError:
+                vYield[iCh] = 0
 
-    if len(limits) == 6:
-        vLimObs[0] = limits['obs']
-        vLimMed[0] = limits['med']
-        vLimM2s[0] = limits['m2s']
-        vLimM1s[0] = limits['m1s']
-        vLimP1s[0] = limits['p1s']
-        vLimP2s[0] = limits['p2s']
-    
         output.Fill()
-    else:
-        print 'Failed to calculate limits.'
 
     outputFile.Write()
     outputFile.Close()

@@ -1,9 +1,12 @@
 import sys
+import re
 import os
 import subprocess
 import time
 
-def runOverSignal(points, script, nodePool, additionalArgs = []):
+LOGDIR = os.environ['HOME'] + '/work/logs'
+
+def runOnInteractiveNodes(points, script, nodePool, additionalArgs = []):
 
     procs = []
     while True:
@@ -46,7 +49,7 @@ def runOverSignal(points, script, nodePool, additionalArgs = []):
         model, point = points.pop()
         print 'Submit', model, point, 'to', node
         
-        proc = subprocess.Popen('ssh -oStrictHostKeyChecking=no -oLogLevel=quiet {node} "screen -D -m {script} {model} {point} {add}"'.format(node = node, script = script, model = model, point = point, add = ' '.join(additionalArgs)), shell = True)
+        proc = subprocess.Popen(['ssh', '-oStrictHostKeyChecking=no', '-oLogLevel=quiet', node, 'screen -D -m {script} {model} {point} {add}'.format(script = script, model = model, point = point, add = ' '.join(additionalArgs))])
         procs.append((point, proc, node))
 
 
@@ -55,13 +58,14 @@ if __name__ == '__main__':
     sPoints = sys.argv[1]
     script = sys.argv[2]
     nodePool = sys.argv[3]
+    additionalArgs = sys.argv[4:]
 
     if ',' in sPoints:
         # model1,point1 model2,point2 ...
         pairs = sPoints.split()
         points = []
         for pair in pairs:
-            points.append((pair.partition(',')[0], pair.partition(',')[1]))
+            points.append((pair.partition(',')[0], pair.partition(',')[2]))
 
     else:
         points = []
@@ -74,4 +78,12 @@ if __name__ == '__main__':
         if sPoints == 'All' or sPoints == 'Spectra_gW':
             points += [('Spectra_gW', 'M3_%d_M2_%d' % (m3, m2)) for m3 in range(715, 1565, 50) for m2 in range(205, m3, 50)]
 
-    runOverSignal(points, script, nodePool)
+    if re.match('^[18]n[hdw]$', nodePool):
+        for model, point in points:
+            jobName = model + '_' + point
+            print jobName
+            proc = subprocess.Popen(['bsub', '-q', nodePool, '-J', jobName, '-o', LOGDIR + '/' + jobName + '.log', '{script} {model} {point} {add}'.format(script = script, model = model, point = point, add = ' '.join(additionalArgs))])
+            proc.communicate()
+
+    else:
+        runOnInteractiveNodes(points, script, nodePool, additionalArgs)

@@ -154,7 +154,10 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     inputTree = ROOT.TChain('limitTree')
     inputTree.Add(sourceName)
 
+    yieldLeaves = [l.GetName() for l in inputTree.GetBranch('yield').GetListOfLeaves()]
+
     vPointName = array.array('c', ' ' * 100)
+    vPhysProc = array.array('c', ' ' * 100)
     vXsec = array.array('d', [0.])
     vXsecErr = array.array('d', [0.])
     vLimObs = array.array('d', [0.])
@@ -163,9 +166,11 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     vLimM1s = array.array('d', [0.])
     vLimP1s = array.array('d', [0.])
     vLimP2s = array.array('d', [0.])
-    vNEvents = array.array('i', [0])
-                
+    vNEvents = array.array('i', [0.])
+    vYield = array.array('i', [0.] * len(yieldLeaves))
+            
     inputTree.SetBranchAddress('pointName', vPointName)
+    inputTree.SetBranchAddress('physProc', vPhysProc)
     inputTree.SetBranchAddress('xsec', vXsec)
     inputTree.SetBranchAddress('xsecErr', vXsecErr)
     inputTree.SetBranchAddress('limObs', vLimObs)
@@ -175,22 +180,16 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     inputTree.SetBranchAddress('limP1s', vLimP1s)
     inputTree.SetBranchAddress('limP2s', vLimP2s)
     inputTree.SetBranchAddress('nEvents', vNEvents)
-
-    vYields = {}
-    branches = inputTree.GetListOfBranches()
-    for branch in branches:
-        if 'Yield' in branch.GetName():
-            y = array.array('i', [0])
-            inputTree.SetBranchAddress(branch.GetName(), y) # don't do branch.SetAddress - this is a TChain
-            vYields[branch.GetName()] = y
+    inputTree.SetBranchAddress('yield', vYield)
 
     xsecs = {}
     xsecErrors = {}
     limits = dict([(i, {}) for i in range(-2, 4)])
-    nEvents = {}
+    nEventsW = {}
+    nEventsW2 = {}
+    yieldsW = {'Electron': {}, 'Muon': {}}
+    yieldsW2 = {'Electron': {}, 'Muon': {}}
     
-    yields = {'Electron': {}, 'Muon': {}}
-
     centers = [[], []]
 
     iEntry = 0
@@ -205,26 +204,44 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
             raise RuntimeError('Invalid point name ' + pointName)
 
         coord = tuple(map(int, [matches.group(iD + 1) for iD in range(ndim)]))
-        for iD in range(ndim):
-            centers[iD].append(coord[iD])
+        if coord not in xsecs:
+            for iD in range(ndim):
+                centers[iD].append(coord[iD])
+    
+            xsecs[coord] = vXsec[0] * xsecScale
+            xsecErrors[coord] = vXsecErr[0] * xsecScale
+            limits[3][coord] = vLimObs[0]
+            limits[-2][coord] = vLimM2s[0]
+            limits[-1][coord] = vLimM1s[0]
+            limits[0][coord] = vLimMed[0]
+            limits[1][coord] = vLimP1s[0]
+            limits[2][coord] = vLimP2s[0]
 
-        xsecs[coord] = vXsec[0] * xsecScale
-        xsecErrors[coord] = vXsecErr[0] * xsecScale
-        limits[3][coord] = vLimObs[0]
-        limits[-2][coord] = vLimM2s[0]
-        limits[-1][coord] = vLimM1s[0]
-        limits[0][coord] = vLimMed[0]
-        limits[1][coord] = vLimP1s[0]
-        limits[2][coord] = vLimP2s[0]
-        nEvents[coord] = vNEvents[0]
+            nEventsW[coord] = 0.
+            nEventsW2[coord] = 0.
+            yieldsW['Electron'][coord] = 0.
+            yieldsW['Muon'][coord] = 0.
+            yieldsW2['Electron'][coord] = 0.
+            yieldsW2['Muon'][coord] = 0.
 
-        yields['Electron'][coord] = 0
-        yields['Muon'][coord] = 0
-        for name, v in vYields.items():
+        nEventsW[coord] += vNEvents[0] * vXsec[0]
+        nEventsW2[coord] += vNEvents[0] * vXsec[0] * vXsec[0]
+        for iY in range(len(yieldLeaves)):
+            name = yieldLeaves[iY]
             if name.startswith('el'):
-                yields['Electron'][coord] += v[0]
+                lepton = 'Electron'
             elif name.startswith('mu'):
-                yields['Muon'][coord] += v[0]
+                lepton = 'Muon'
+
+            yieldsW[lepton][coord] += vYield[iY] * vXsec[0]
+            yieldsW2[lepton][coord] += vYield[iY] * vXsec[0] * vXsec[0]
+
+    # effective
+    #  . number of events = (sum_proc{N*sigma})^2 / sum_proc{N*sigma^2}
+    #  . yield = (sum_proc_ch{y*sigma})^2 / sum_proc_ch{y*sigma^2}
+
+    nEvents = dict([(coord, math.pow(nEventsW[coord], 2.) / nEventsW2[coord]) for coord in xsecs.keys()])
+    yields = dict((lepton, dict([(coord, math.pow(yieldsW[lepton][coord], 2.) / yieldsW2[lepton][coord]) for coord in xsecs.keys()])) for lepton in ['Electron', 'Muon'])
 
 #    edges = [[], []]
 #    for iD in range(ndim):
