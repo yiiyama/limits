@@ -16,7 +16,7 @@ import datacard
 SETENV = 'cd /afs/cern.ch/user/y/yiiyama/cmssw/Combine612; eval `scram runtime -sh`;'
 XSECDIR = '/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs'
 FULLCLS = False
-FORCEPROF = False
+FORCEPROF = True
 
 def getLimits(fileName, vLimits, calculate = False):
     """
@@ -78,7 +78,7 @@ def getLimits(fileName, vLimits, calculate = False):
             
             vLimits[quant][0] = rvalues[iEntry]
 
-        return len(quant) == 6
+        return len(limSet) == 6
 
         
 def writeLog(header, content = ''):
@@ -298,7 +298,7 @@ def computeLimits(model, point, channels, outputdir):
 
         makeGrid((vLimits['m2s'][0], vLimits['p2s'][0]), cardPath, workdir)
 
-        if fullCLs(cardPath, workdir, vLimits)
+        if fullCLs(cardPath, workdir, vLimits):
             for iC in range(len(method)):
                 vMethod[iC] = method[iC]
                 vMethod[iC + 1] = '\0'
@@ -311,8 +311,8 @@ def computeLimits(model, point, channels, outputdir):
 
     limitTree.Scan('*')
 
-    limitTreeFile.Write()
-    limitTreeFile.Close()
+    outputFile.Write()
+    outputFile.Close()
 
     shutil.copyfile(workdir + '/' + pointName + '.root', outputdir + '/' + pointName + '.root')
 

@@ -1,6 +1,7 @@
 import re
 import math
 import array
+import pickle
 import ROOT
 
 ROOT.gROOT.SetBatch(True)
@@ -148,7 +149,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         DRAWOPTION = 'COLZ'
 
     if not outputName:
-        outputName = model
+        outputName = model + '_limits'
 
     # Tree with information on one signal point per row. Columns are the name, calculation method, median and +-1/2 sigma signal strength upper bounds of the point.
     inputTree = ROOT.TChain('limitTree')
@@ -186,7 +187,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         
         pointStr = vPointName.tostring()
         pointName = pointStr[0:pointStr.find('\0')]
-        methodName = vMethod.tostring()
+        methodStr = vMethod.tostring()
+        methodName = methodStr[0:methodStr.find('\0')]
 
         matches = re.match(pointFormat, pointName)
         if not matches:
@@ -200,6 +202,9 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
 
         coord = tuple(map(int, [matches.group(iD + 1) for iD in range(ndim)]))
         coords[pointName] = coord
+
+        for iD in range(ndim):
+            centers[iD].append(coord[iD])
 
         limits[3][coord] = vLimObs[0]
         limits[-2][coord] = vLimM2s[0]
@@ -215,11 +220,22 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     yieldsW = {'Electron': {}, 'Muon': {}}
     yieldsW2 = {'Electron': {}, 'Muon': {}}
         
-    with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + model + '.pkl', 'b') as pickleSource:
+    with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + model + '.pkl', 'rb') as pickleSource:
         datacard = pickle.load(pickleSource)
 
     for pointName, coord in coords.items():
         processes = datacard[pointName]
+        
+        xsecs[coord] = 0.
+        xsecErr2[coord] = 0.
+        nEventsW[coord] = 0.
+        nEventsW2[coord] = 0.
+        yieldsW['Electron'][coord] = 0.
+        yieldsW['Muon'][coord] = 0.
+        yieldsW2['Electron'][coord] = 0.
+        yieldsW2['Muon'][coord] = 0.
+
+        physProcs = []
 
         for channelName, process in processes.items():
             if channelName.startswith('el'):
@@ -228,15 +244,17 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
                 lepton = 'Muon'
             
             for phys, genInfo in process.genInfo.items():
-                xsecs[coord] += genInfo.xsec * xsecScale
-                xsecErr2[coord] += math.pow(genInfo.relErr * genInfo.xsec * xsecScale, 2.)
-                nEventsW[coord] += genInfo.nEvents * genInfo.xsec
-                nEventsW2[coord] += genInfo.nEvents * genInfo.xsec * genInfo.xsec
+                if phys not in physProcs:
+                    xsecs[coord] += genInfo.xsec * xsecScale
+                    xsecErr2[coord] += math.pow(genInfo.relErr * genInfo.xsec * xsecScale, 2.)
+                    nEventsW[coord] += genInfo.nEvents * genInfo.xsec
+                    nEventsW2[coord] += genInfo.nEvents * genInfo.xsec * genInfo.xsec
+                    physProcs.append(phys)
 
                 yieldsW[lepton][coord] += process.rates[phys][1] * genInfo.xsec
                 yieldsW2[lepton][coord] += process.rates[phys][1] * genInfo.xsec * genInfo.xsec
 
-    xsecErrors = dict([(coord, math.sqrt(err2)) for coord, err2 in xsecErr2.items()])
+    xsecErrors = dict([(coord, math.sqrt(err2) / xsecs[coord]) for coord, err2 in xsecErr2.items()])
             
     # effective
     #  . number of events = (sum_proc{N*sigma})^2 / sum_proc{N*sigma^2}
@@ -276,7 +294,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     else:
         template = ROOT.TH2D('template', ';' + ';'.join(titles[1:]), nbins[0], centers[0][0] - width[0] / 2., centers[0][-1] + width[0] / 2., nbins[1], centers[1][0] - width[1] / 2., centers[1][-1] + width[1] / 2.)
 
-    template.GetYaxis().SetTitleOffset(1.44)
+    template.GetXaxis().SetTitleOffset(1.3)
+    template.GetYaxis().SetTitleOffset(1.6)
     template.GetXaxis().SetLabelSize(0.03)
     template.GetYaxis().SetLabelSize(0.03)
 
@@ -287,7 +306,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     else:
         canvas.SetRightMargin(0.17)
 
-    output = ROOT.TFile.Open('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/' + outputName + '.root', 'recreate')
+    output = ROOT.TFile.Open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + outputName + '.root', 'recreate')
 
     if ndim == 1:
         canvas.SetLogy(True)
@@ -360,7 +379,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
                 palette.SetTitleOffset(1.5)
                 palette.SetLabelSize(0.03)
 
-        canvas.Print(plotsDir + '/' + outputName + '_acceptance_' + lept + '.pdf')
+        canvas.Print(plotsDir + '/' + model + '_acceptance_' + lept + '.pdf')
 
 
     if ndim == 1:
@@ -409,18 +428,17 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
                 palette.SetTitleOffset(1.5)
                 palette.SetLabelSize(0.03)
 
-        canvas.Print(plotsDir + '/' + outputName + '_crosssect' + suffix(sig) + '.pdf')
+        canvas.Print(plotsDir + '/' + model + '_crosssect' + suffix(sig) + '.pdf')
 
 #    canvas.SetLogz(True)
 
     # upper limit plots
     upperlim = {}
     for sig in range(-2, 4):
-        upperlim[sig] = template.Clone('upperlim[sig]_' + str(sig) + 'sigma')
+        upperlim[sig] = template.Clone('upperlim_' + str(sig) + 'sigma')
         title = TITLEBASE
         axisTitle = '#sigma_{95%}'
         if sig == 3:
-            title += ' Observed'
             axisTitle += '^{observed}'
         elif sig == 0:
             title += ' Expected'
@@ -458,7 +476,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
                 palette.SetTitleOffset(1.5)
                 palette.SetLabelSize(0.03)
 
-        canvas.Print(plotsDir + '/' + outputName + '_upperlim' + suffix(sig) + '.pdf')
+        canvas.Print(plotsDir + '/' + model + '_upperlim' + suffix(sig) + '.pdf')
 
 
     if ndim == 2:
@@ -624,7 +642,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         exp2s.GetXaxis().SetTitle(upperlim[0].GetXaxis().GetTitle())
         exp2s.GetYaxis().SetTitle('#sigma (pb)')
         exp2s.GetYaxis().SetRangeUser(rangeMin, rangeMax)
-        exp2s.GetYaxis().SetTitleOffset(1.44)
+        exp2s.GetYaxis().SetTitleOffset(1.5)
 
     else:
         canvas.SetLogz(True)
@@ -633,9 +651,6 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         setPalette(1.5)
     
         background.Draw(DRAWOPTION)
-
-        background.GetXaxis().SetTitleOffset(1.3)
-        background.GetYaxis().SetTitleOffset(1.3)
 
         zaxis = background.GetZaxis()
         zaxis.SetTickLength(0.02)
@@ -826,7 +841,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     header.Draw()
     header.SetDrawOption(' ')
     
-    canvas.Print(plotsDir + '/' + outputName + '_exclusion.pdf')
+    canvas.Print(plotsDir + '/' + model + '_exclusion.pdf')
         
 
 if __name__ == '__main__':
@@ -837,7 +852,7 @@ if __name__ == '__main__':
     parser = OptionParser(usage = 'Usage: writeDataCard.py [options] outputName')
     parser.add_option('-s', '--source', dest = 'sourceName', default = '', help = 'source root file')
     parser.add_option('-x', '--scale-xsec', dest = 'xsecScale', type = 'float', default = 1., help = 'cross section scale factor')
-    parser.add_option('-o', '--output-name', dest = 'outputName', default = '', help = 'output plot file name')
+    parser.add_option('-o', '--output-name', dest = 'outputName', default = '', help = 'output ROOT file name')
 
     options, args = parser.parse_args()
 

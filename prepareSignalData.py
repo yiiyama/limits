@@ -2,12 +2,13 @@ import sys
 import os
 import math
 import array
-import datacard
+import ROOT
 
-sys.path.append('/afs/cern.ch/user/y/yiiyama/src/GammaL/plotstack')
-import rootconfig
-from dataset import Dataset
+import linkplotstack
+
 from GammaL.countSignal import getDataset
+
+import datacard
 
 tmpFile = None
 
@@ -64,17 +65,17 @@ def setSignal(model, pointName, processes, channels, ratescale):
     if not dataset: return
 
     for sample in dataset.samples.values():
-        if sample.name not in treeStore:
+        if sample.name not in datacard.treeStore:
             if tmpFile is not None:
                 sample.loadTree('rooth://ncmu40//store/countSignal/' + model)
                 tmpFile.cd()
                 tree = sample.tree.CopyTree('(mt >= 100. && met >= 120.) || (mtJESUp >= 100. && metJESUp >= 120.) || (mtJESDown >= 100. && metJESDown >= 120.)')
                 sample.releaseTree()
                 tree.SetName('eventList_' + sample.name)
-                treeStore[sample.name] = tree
+                datacard.treeStore[sample.name] = tree
             else:
                 sample.loadTree('rooth://ncmu40//store/countSignal/' + model)
-                treeStore[sample.name] = sample.tree
+                datacard.treeStore[sample.name] = sample.tree
 
     stackNames = set([c.stackName for c in channels.values()])
     scaleSources = dict([(s, ROOT.TFile('/afs/cern.ch/user/y/yiiyama/output/GammaL/main/' + s + '.root')) for s in stackNames])
@@ -87,10 +88,10 @@ def setSignal(model, pointName, processes, channels, ratescale):
         jgSample = dataset.samples['FakePhotonAnd' + channel.lepton]
         jlSample = dataset.samples['PhotonAndFake' + channel.lepton]
 
-        rate, count = getRateAndCount(candSample, channel.cut)
-        rate -= getRateAndCount(egSample, channel.cut)[0]
-        rate -= getRateAndCount(jgSample, channel.cut)[0]
-        rate -= getRateAndCount(jlSample, channel.cut)[0] * jlScale
+        rate, count = datacard.getRateAndCount(candSample, channel.cut)
+        rate -= datacard.getRateAndCount(egSample, channel.cut)[0]
+        rate -= datacard.getRateAndCount(jgSample, channel.cut)[0]
+        rate -= datacard.getRateAndCount(jlSample, channel.cut)[0] * jlScale
 
         if rate < 0.: rate = 0.
 
@@ -127,14 +128,14 @@ def setSignal(model, pointName, processes, channels, ratescale):
 
             process.nuisances['jes'] = jesUncert
 
-        process.addRate(model + '_' + pointName, rate, count, genInfo = dataset.GenInfo(dataset.sigma, dataset.sigmaRelErr, dataset.nEvents))
+        process.addRate(model + '_' + pointName, rate, count, genInfo = datacard.GenInfo(dataset.sigma, dataset.sigmaRelErr, dataset.nEvents))
 
     for source in scaleSources.values():
         source.Close()
 
     if tmpFile is None:
         for sample in dataset.samples.values():
-            treeStore.pop(sample.name)
+            datacard.treeStore.pop(sample.name)
             sample.releaseTree()
 
 
@@ -143,7 +144,7 @@ if __name__ == '__main__':
     import pickle
     from optparse import OptionParser
 
-    parser = OptionParser(usage = 'Usage: writeSignalDataCards.py [options] inputName')
+    parser = OptionParser(usage = 'Usage: prepareSignalData.py [options] inputName')
     parser.add_option('-p', '--point', dest = 'point', default = '')
     parser.add_option('-m', '--model', dest = 'model', default = '')
 

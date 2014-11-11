@@ -2,6 +2,9 @@ import math
 import collections
 import ROOT
 
+import linkplotstack
+import locations
+
 LUMI = '19712.'
 
 treeStore = {}
@@ -18,7 +21,6 @@ class Process(object):
         self.genInfo = {} # for signal MC, proc -> GenInfo
 
     def addRate(self, sample, rate, count, genInfo = None):
-        if count == 0: return
         self.rates[sample] = (rate, count)
         if genInfo:
             self.genInfo[sample] = genInfo
@@ -30,11 +32,12 @@ class Process(object):
         if len(self.rates) == 0: return 0
 
         # effective count = (sum{count * w})^2 / sum{count * w^2}
+        # r = c * w
         R = self.rate()
         if R <= 0.: return 0
 
         R2 = math.pow(R, 2.)
-        D = sum([r * r / c for r, c in self.rates.values()])
+        D = sum([r * r / c for r, c in self.rates.values() if c != 0])
         return int(round(R2 / D))
 
 
@@ -240,7 +243,7 @@ def writeDataCard(channels, cardName):
             line = [ch + '_' + proc + ' gmN ' + str(count)]
             for chproc in [(c, p) for c in channelNames for p in processNames]:
                 if chproc == (ch, proc):
-                    line.append('%.2e' % (process.rate() / process.count()))
+                    line.append('%.2e' % (process.rate() / count))
                 else:
                     line.append('-')
             

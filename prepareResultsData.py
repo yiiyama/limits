@@ -2,14 +2,11 @@ import sys
 import os
 import ROOT
 
-import datacard
-
-sys.path.append('/afs/cern.ch/user/y/yiiyama/src/GammaL/plotstack')
-import rootconfig
-import locations
+import linkplotstack
 from stack import Group
-from dataset import Dataset
 from GammaL.config import stackConfigs
+
+import datacard
         
 def setupChannel(channel):
 
@@ -83,8 +80,8 @@ def vgshape(group, channel, vgscale, nominal):
 
     rate = 0.
     for sample in group.samples:
-        if sample.name in treeStore:
-            tree = treeStore[sample.name]
+        if sample.name in datacard.treeStore:
+            tree = datacard.treeStore[sample.name]
         else:
             sample.loadTree(locations.eventListDir)
             tree = sample.tree
@@ -95,7 +92,7 @@ def vgshape(group, channel, vgscale, nominal):
         elif channel.lepton == 'Muon':
             ptVar = 'muon.pt[0]'
 
-        nEntries = tree.Draw(ptVar + ':eventSigma * ' + LUMI + ' * puWeight * effScale', channel.cut, 'goff')
+        nEntries = tree.Draw(ptVar + ':eventSigma * ' + datacard.LUMI + ' * puWeight * effScale', channel.cut, 'goff')
         ptArr = tree.GetV1()
         wArr = tree.GetV2()
         for iE in range(nEntries):
@@ -105,7 +102,7 @@ def vgshape(group, channel, vgscale, nominal):
 
             rate += ptlWeight.GetBinContent(iBin) * wArr[iE]
 
-        if sample.name not in treeStore:
+        if sample.name not in datacard.treeStore:
             tree = None
             sample.releaseTree()
 
@@ -138,7 +135,7 @@ if __name__ == '__main__':
         tmpFile = ROOT.TFile.Open(os.environ['TMPDIR'] + '/prepareResultsData_tmp.root')
         for key in tmpFile.GetListOfKeys():
             name = key.GetName().replace('eventList_', '')
-            treeStore[name] = key.ReadObj()
+            datacard.treeStore[name] = key.ReadObj()
 
     else:
         tmpFile = ROOT.TFile.Open(os.environ['TMPDIR'] + '/prepareResultsData_tmp.root', 'recreate')
@@ -156,7 +153,7 @@ if __name__ == '__main__':
             tree = sample.tree.CopyTree('(mt >= 100. && met >= 120.) || (mtJESUp >= 100. && metJESUp >= 120.) || (mtJESDown >= 100. && metJESDown >= 120.)')
             sample.releaseTree()
             tree.SetName('eventList_' + sample.name)
-            treeStore[sample.name] = tree
+            datacard.treeStore[sample.name] = tree
 
         tmpFile.cd()
         tmpFile.Write()
