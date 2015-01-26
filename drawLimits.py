@@ -214,28 +214,30 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         limits[2][coord] = vLimP2s[0]
 
     xsecs = {}
-    xsecErr2 = {}
-    nEventsW = {}
-    nEventsW2 = {}
-    yieldsW = {'Electron': {}, 'Muon': {}}
-    yieldsW2 = {'Electron': {}, 'Muon': {}}
+    xsecErrors = {}
+    nEvents = {}
+    yields = {'Electron': {}, 'Muon': {}}
         
     with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + model + '.pkl', 'rb') as pickleSource:
         datacard = pickle.load(pickleSource)
 
     for pointName, coord in coords.items():
-        processes = datacard[pointName]
+        processes, genInfo = datacard[pointName]
         
         xsecs[coord] = 0.
-        xsecErr2[coord] = 0.
-        nEventsW[coord] = 0.
-        nEventsW2[coord] = 0.
-        yieldsW['Electron'][coord] = 0.
-        yieldsW['Muon'][coord] = 0.
-        yieldsW2['Electron'][coord] = 0.
-        yieldsW2['Muon'][coord] = 0.
 
-        physProcs = []
+        xsecErr2 = 0.
+        nEventsW = 0.
+        nEventsW2 = 0.
+
+        for info in genInfo.values():
+            xsecs[coord] += info.xsec * xsecScale
+            xsecErr2 += math.pow(info.relErr * info.xsec * xsecScale, 2.)
+            nEventsW += info.nEvents * info.xsec
+            nEventsW2 += info.nEvents * info.xsec * info.xsec
+
+        yieldsW = {'Electron': 0., 'Muon': 0.}
+        yieldsW2 = {'Electron': 0., 'Muon': 0.}
 
         for channelName, process in processes.items():
             if channelName.startswith('el'):
@@ -243,25 +245,25 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
             elif channelName.startswith('mu'):
                 lepton = 'Muon'
             
-            for phys, genInfo in process.genInfo.items():
-                if phys not in physProcs:
-                    xsecs[coord] += genInfo.xsec * xsecScale
-                    xsecErr2[coord] += math.pow(genInfo.relErr * genInfo.xsec * xsecScale, 2.)
-                    nEventsW[coord] += genInfo.nEvents * genInfo.xsec
-                    nEventsW2[coord] += genInfo.nEvents * genInfo.xsec * genInfo.xsec
-                    physProcs.append(phys)
+            for componentPoint, (rate, count) in process.rates.items():
+                yieldsW[lepton] += count * genInfo[componentPoint].xsec
+                yieldsW2[lepton] += count * genInfo[componentPoint].xsec * genInfo[componentPoint].xsec
 
-                yieldsW[lepton][coord] += process.rates[phys][1] * genInfo.xsec
-                yieldsW2[lepton][coord] += process.rates[phys][1] * genInfo.xsec * genInfo.xsec
+        xsecErrors[coord] = math.sqrt(xsecErr2) / xsecs[coord]
 
-    xsecErrors = dict([(coord, math.sqrt(err2) / xsecs[coord]) for coord, err2 in xsecErr2.items()])
-            
-    # effective
-    #  . number of events = (sum_proc{N*sigma})^2 / sum_proc{N*sigma^2}
-    #  . yield = (sum_proc_ch{y*sigma})^2 / sum_proc_ch{y*sigma^2}
+        # effective
+        #  . number of events = (sum_proc{N*sigma})^2 / sum_proc{N*sigma^2}
+        #  . yield = (sum_proc_ch{y*sigma})^2 / sum_proc_ch{y*sigma^2}
 
-    nEvents = dict([(coord, math.pow(nEventsW[coord], 2.) / nEventsW2[coord]) for coord in xsecs.keys()])
-    yields = dict((lepton, dict([(coord, math.pow(yieldsW[lepton][coord], 2.) / yieldsW2[lepton][coord]) for coord in xsecs.keys()])) for lepton in ['Electron', 'Muon'])
+        if nEventsW2 > 0.:
+            nEvents[coord] = math.pow(nEventsW, 2.) / nEventsW2
+        else:
+            nEvents[coord] = 0.
+        for lepton in ['Electron', 'Muon']:
+            if yieldsW2[lepton] > 0.:
+                yields[lepton][coord] = math.pow(yieldsW[lepton], 2.) / yieldsW2[lepton]
+            else:
+                yields[lepton][coord] = 0.
 
 #    edges = [[], []]
 #    for iD in range(ndim):
@@ -876,5 +878,11 @@ if __name__ == '__main__':
     elif model == 'Spectra_gW':
         form = 'Spectra_gW_M3_([0-9]+)_M2_([0-9]+)'
         titles = ('GGM Wino-like NLSP NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
+    elif model == 'Spectra_gW_nc':
+        form = 'Spectra_gW_nc_M3_([0-9]+)_M2_([0-9]+)'
+        titles = ('GGM Wino-like NLSP EWK only NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
+    elif model == 'Spectra_gW_gg':
+        form = 'Spectra_gW_gg_M3_([0-9]+)_M2_([0-9]+)'
+        titles = ('GGM Wino-like NLSP strong only NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
 
     drawLimits(model, sourceName, plotsDir, form, titles, xsecScale = options.xsecScale, outputName = options.outputName)

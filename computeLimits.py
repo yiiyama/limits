@@ -15,8 +15,8 @@ import datacard
 
 SETENV = 'cd /afs/cern.ch/user/y/yiiyama/cmssw/Combine612; eval `scram runtime -sh`;'
 XSECDIR = '/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs'
-FULLCLS = False
-FORCEPROF = True
+FULLCLS = True
+FORCEPROF = False
 
 def getLimits(fileName, vLimits, calculate = False):
     """
@@ -331,7 +331,8 @@ if __name__ == '__main__':
     with open(pkldir + '/' + model + '.pkl') as source:
         signals = pickle.load(source)
 
+    signalData = signals[model + '_' + point][0]
     for name, channel in channels.items():
-        channel.processes['signal'] = signals[model + '_' + point][name]
+        channel.processes['signal'] = signalData[name]
 
     computeLimits(model, point, channels, outputdir)

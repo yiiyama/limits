@@ -4,6 +4,7 @@ import ROOT
 
 import linkplotstack
 from stack import Group
+import locations
 from GammaL.config import stackConfigs
 
 import datacard
@@ -72,6 +73,7 @@ def setupChannel(channel):
                     scale = 1.
 
                 process.nuisances['jes'] = datacard.getJESUncert([(sample, scale) for sample in group.samples], channel.cut, process.rate())
+                process.nuisances['jer'] = datacard.getJERUncert([(sample, scale) for sample in group.samples], channel.cut, process.rate())
 
 
 def vgshape(group, channel, vgscale, nominal):
@@ -150,7 +152,9 @@ if __name__ == '__main__':
             print 'Skimming', sample.name
             sample.loadTree(locations.eventListDir)
             tmpFile.cd()
-            tree = sample.tree.CopyTree('(mt >= 100. && met >= 120.) || (mtJESUp >= 100. && metJESUp >= 120.) || (mtJESDown >= 100. && metJESDown >= 120.)')
+            suffices = ['', 'JESUp', 'JESDown', 'Smeared', 'SmearedUp', 'SmearedDown']
+            selection = '||'.join(['(mt{suffix} >= 100. && met{suffix} >= 120.)'.format(suffix = s) for s in suffices])
+            tree = sample.tree.CopyTree(selection)
             sample.releaseTree()
             tree.SetName('eventList_' + sample.name)
             datacard.treeStore[sample.name] = tree
@@ -177,4 +181,3 @@ if __name__ == '__main__':
 
     with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + outputName, 'wb') as outputFile:
         pickle.dump(channels, outputFile)
-

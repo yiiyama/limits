@@ -1,4 +1,5 @@
 import ROOT
+import math
 
 ROOT.gROOT.Macro('/afs/cern.ch/user/y/yiiyama/work/rootlogon.C')
 
@@ -11,10 +12,11 @@ plist = [
 
 prospino = {}
 with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/gen/Spectra_gW/prospino.dat') as source:
-    source.readline()
     for line in source:
-        words = line.strip().split()
-        prospino[words[0]] = (float(words[12]), float(words[13]))
+        name, central, upS, downS = line.strip().split()
+        up = float(upS)
+        down = float(downS)
+        prospino[name] = (float(central), math.sqrt(up * up + down * down) / float(central))
 
 with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/Spectra_gW.xsecs', 'w') as outputFile:
     for point in points:

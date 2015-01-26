@@ -77,6 +77,10 @@ if __name__ == '__main__':
             points += [('T5wg+TChiwg', '%d_%d' % (mglu, mchi)) for mglu in range(700, 1550, 50) for mchi in range(225, mglu, 50)]
         if sPoints == 'All' or sPoints == 'Spectra_gW':
             points += [('Spectra_gW', 'M3_%d_M2_%d' % (m3, m2)) for m3 in range(715, 1565, 50) for m2 in range(205, m3, 50)]
+        if sPoints == 'Spectra_gW_nc':
+            points += [('Spectra_gW_nc', 'M3_%d_M2_%d' % (m3, m2)) for m3 in range(715, 1565, 50) for m2 in range(205, m3, 50)]
+        if sPoints == 'Spectra_gW_gg':
+            points += [('Spectra_gW_gg', 'M3_%d_M2_%d' % (m3, m2)) for m3 in range(715, 1565, 50) for m2 in range(205, m3, 50)]
 
     if re.match('^[18]n[hdw]$', nodePool):
         for model, point in points:

@@ -59,17 +59,21 @@ def getISRUncert(model, pointName, samplesAndScales, cut, nominal):
     return datacard.boundVal(shift)
 
 
-def setSignal(model, pointName, processes, channels, ratescale):
+def setSignal(model, pointName, processes, genInfo, channels, ratescale):
 
     dataset = getDataset(model, pointName)
     if not dataset: return
+
+    genInfo[model + '_' + pointName] = datacard.GenInfo(dataset.sigma, dataset.sigmaRelErr, dataset.nEvents)
 
     for sample in dataset.samples.values():
         if sample.name not in datacard.treeStore:
             if tmpFile is not None:
                 sample.loadTree('rooth://ncmu40//store/countSignal/' + model)
                 tmpFile.cd()
-                tree = sample.tree.CopyTree('(mt >= 100. && met >= 120.) || (mtJESUp >= 100. && metJESUp >= 120.) || (mtJESDown >= 100. && metJESDown >= 120.)')
+                suffices = ['', 'JESUp', 'JESDown', 'Smeared', 'SmearedUp', 'SmearedDown']
+                selection = '||'.join(['(mt{suffix} >= 100. && met{suffix} >= 120.)'.format(suffix = s) for s in suffices])
+                tree = sample.tree.CopyTree(selection)
                 sample.releaseTree()
                 tree.SetName('eventList_' + sample.name)
                 datacard.treeStore[sample.name] = tree
@@ -128,7 +132,16 @@ def setSignal(model, pointName, processes, channels, ratescale):
 
             process.nuisances['jes'] = jesUncert
 
-        process.addRate(model + '_' + pointName, rate, count, genInfo = datacard.GenInfo(dataset.sigma, dataset.sigmaRelErr, dataset.nEvents))
+            jerUncert = datacard.getJERUncert([(candSample, 1.)], channel.cut, rate)
+
+            if 'jer' in process.nuisances:
+                jerUncert *= rate
+                jerUncert += process.nuisances['jer'] * process.rate()
+                jerUncert /= (rate + process.rate())
+
+            process.nuisances['jer'] = jerUncert
+
+        process.addRate(model + '_' + pointName, rate, count)
 
     for source in scaleSources.values():
         source.Close()
@@ -218,18 +231,18 @@ if __name__ == '__main__':
         outputFile = open(outputFileName, 'wb')
         data = {}
 
-        for title in sorted(pointList[model].keys()):
-            if options.point and title != options.point: continue
+        for point in sorted(pointList[model].keys()):
+            if options.point and point != options.point: continue
 
-            fullTitle = model + '_' + title
-            print fullTitle
+            pointName = model + '_' + point
+            print pointName
 
-            signals = pointList[model][title]
-            processes = {}
-            for source, point in signals:
-                setSignal(source, point, processes, channels, ratescale)
+            processes = {} # channel -> Process [.rates: componentPoint -> rate & count]
+            genInfo = {} # componentPoint -> GenInfo
+            for component, componentPoint in pointList[model][point]:
+                setSignal(component, componentPoint, processes, genInfo, channels, ratescale)
 
-            data[fullTitle] = processes
+            data[pointName] = (processes, genInfo)
 
         pickle.dump(data, outputFile)
 

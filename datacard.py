@@ -18,12 +18,9 @@ class Process(object):
         self.nuisances = {}
 
         self.rates = {}
-        self.genInfo = {} # for signal MC, proc -> GenInfo
 
-    def addRate(self, sample, rate, count, genInfo = None):
+    def addRate(self, sample, rate, count):
         self.rates[sample] = (rate, count)
-        if genInfo:
-            self.genInfo[sample] = genInfo
 
     def rate(self):
         return sum([r for r, c in self.rates.values()])
@@ -110,6 +107,40 @@ def getJESUncert(samplesAndScales, cut, nominal):
         return 0.
 
     # always use sign of upward JES shift
+    if abs(shiftUp) > abs(shiftDown):
+        return boundVal(shiftUp)
+        
+    else:
+        if shiftDown * shiftUp < 0.:
+            return boundVal(-shiftDown)
+        else:
+            return boundVal(shiftDown)
+
+
+def getJERUncert(samplesAndScales, cut, nominal):
+    
+    if nominal <= 0.: return 0.
+
+    center = 0.
+    up = 0.
+    down = 0.
+    for sample, scale in samplesAndScales:
+#        cut = cut.replace(' met ', ' metSmeared ').replace(' mt ', ' mtSmeared ').replace(' ht ', ' htSmeared ')
+#        center += getRateAndCount(sample, cut)[0] * scale
+
+        cutUp = cut.replace(' met ', ' metSmearedUp ').replace(' mt ', ' mtSmearedUp ').replace(' ht ', ' htSmearedUp ')
+        up += getRateAndCount(sample, cutUp)[0] * scale
+
+#        cutDown = cut.replace(' met ', ' metSmearedDown ').replace(' mt ', ' mtSmearedDown ').replace(' ht ', ' htSmearedDown ')
+#        down += getRateAndCount(sample, cutDown)[0] * scale
+
+    shiftUp = (nominal - up) / nominal
+#    shiftDown = (down - nominal) / nominal
+    shiftDown = 0.
+
+    if abs(shiftUp) < 5.e-4 and abs(shiftDown) < 5.e-4:
+        return 0.
+
     if abs(shiftUp) > abs(shiftDown):
         return boundVal(shiftUp)
         
