@@ -201,18 +201,18 @@ def makeGrid(bounds, card, workdir):
     proc.communicate()
 
 
-def fullCLs(card, workdir):
+def fullCLs(card, workdir, vLimits, gridfile):
     """
     Run combine in HybridNew mode and return the resulting expected limits in the form of python dict (using getLimits)    
     """
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid HybridGrid.root 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid ' + gridfile + ' 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
     output = proc.communicate()[0]
 
     writeLog('Observed', output)
 
     for quant in ['0.025', '0.16', '0.5', '0.84', '0.975']:
-        proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid HybridGrid.root --expectedFromGrid ' + quant + ' 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+        proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid ' + gridfile + ' --expectedFromGrid ' + quant + ' 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
         output = proc.communicate()[0]
         
         writeLog('Expected ' + quant, output)
@@ -225,9 +225,7 @@ def fullCLs(card, workdir):
     return getLimits(workdir + '/HybridFullCLs.root', vLimits)
 
 
-def computeLimits(model, point, channels, outputdir):
-
-    pointName = model + '_' + point
+def computeLimits(pointName, channels, outputdir, gridfile = ''):
 
     try:
         workdir = os.environ['TMPDIR'] + '/' + pointName
@@ -263,47 +261,55 @@ def computeLimits(model, point, channels, outputdir):
 
     datacard.writeDataCard(channels, cardPath)
 
-    writeLog('Calculating asymptotic limits')
-    method = 'asymptotic'
-
-    converged = asymptotic(cardPath, workdir, vLimits)
-
-    if converged:
-        for iC in range(len(method)):
-            vMethod[iC] = method[iC]
-            vMethod[iC + 1] = '\0'
-            
-        limitTree.Fill()
-    else:
-        print 'Asymptotic method did not converge.'
-
-    if FORCEPROF or not converged:
-        writeLog('Using profile likelihood')
-        method = 'profileLikelihood'
-
-        if profileLikelihood(cardPath, workdir, vLimits):
+    if not (FULLCLS and gridfile):
+        writeLog('Calculating asymptotic limits')
+        method = 'asymptotic'
+    
+        converged = asymptotic(cardPath, workdir, vLimits)
+    
+        if converged:
             for iC in range(len(method)):
                 vMethod[iC] = method[iC]
                 vMethod[iC + 1] = '\0'
-            
+                
             limitTree.Fill()
+        else:
+            print 'Asymptotic method did not converge.'
+    
+        if FORCEPROF or not converged:
+            writeLog('Using profile likelihood')
+            method = 'profileLikelihood'
+    
+            if profileLikelihood(cardPath, workdir, vLimits):
+                for iC in range(len(method)):
+                    vMethod[iC] = method[iC]
+                    vMethod[iC + 1] = '\0'
+                
+                limitTree.Fill()
+            else:
+                print 'ProfileLikelihood method did not converge.'
+
+        if FULLCLS:
+            writelog('Creating q_mu grid on the fly')
+
+            if limitTree.GetEntries() == 0:
+                writeLog('No estimate of bounds for grid production.')
+                sys.exit(1)
+    
+            gridfile = makeGrid((vLimits['m2s'][0], vLimits['p2s'][0]), cardPath, workdir)
 
     if FULLCLS:
-        if limitTree.GetEntries() == 0:
-            writeLog('No estimate of bounds for grid production.')
-            sys.exit(1)
-        
         writeLog('Calculating full CLs')
         method = 'fullCLs'
 
-        makeGrid((vLimits['m2s'][0], vLimits['p2s'][0]), cardPath, workdir)
-
-        if fullCLs(cardPath, workdir, vLimits):
+        if fullCLs(cardPath, workdir, vLimits, gridfile):
             for iC in range(len(method)):
                 vMethod[iC] = method[iC]
                 vMethod[iC + 1] = '\0'
         
             limitTree.Fill()
+        else:
+            print 'Full CLs method did not converge.'
 
     if limitTree.GetEntries() == 0:
         writeLog('Failed to calculate limits.')
@@ -319,11 +325,18 @@ def computeLimits(model, point, channels, outputdir):
 
 if __name__ == '__main__':
 
-    model = sys.argv[1]
-    point = sys.argv[2]
-    result = sys.argv[3]
-    pkldir = os.path.realpath(sys.argv[4])
-    outputdir = sys.argv[5]
+    from optparse import OptionParser
+
+    parser = OptionParser(usage = 'Usage: clsgrid.py [-i index] model point datadir outputdir logdir')
+    parser.add_option('-g', '--grid', dest = 'gridfile', default = '', help = 'grid file')
+
+    options, args = parser.parse_args()
+
+    model = args[0]
+    point = args[1]
+    result = args[2]
+    pkldir = os.path.realpath(args[3])
+    outputdir = args[4]
 
     with open(pkldir + '/' + result) as source:
         channels = pickle.load(source)
@@ -331,8 +344,10 @@ if __name__ == '__main__':
     with open(pkldir + '/' + model + '.pkl') as source:
         signals = pickle.load(source)
 
-    signalData = signals[model + '_' + point][0]
+    pointName = model + '_' + point
+
+    signalData = signals[pointName][0]
     for name, channel in channels.items():
         channel.processes['signal'] = signalData[name]
 
-    computeLimits(model, point, channels, outputdir)
+    computeLimits(pointName, channels, outputdir, options.gridfile)
