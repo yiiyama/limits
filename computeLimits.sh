@@ -1,5 +1,7 @@
 #!/bin/bash
 
+GRID=true
+
 MODEL=$1
 POINT=$2
 SUFFIX=$3
@@ -15,4 +17,8 @@ eval `scram runtime -sh`
 
 cd $HOME/src/GammaL/limits
 
-python computeLimits.py $MODEL $POINT $RESPKL $PKLDIR $DEST
+if $GRID; then
+    python computeLimits.py -g $DEST/grid_${MODEL}_${POINT} $MODEL $POINT $RESPKL $PKLDIR $DEST
+else
+    python computeLimits.py $MODEL $POINT $RESPKL $PKLDIR $DEST
+fi

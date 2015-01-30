@@ -86,8 +86,10 @@ if __name__ == '__main__':
         for model, point in points:
             jobName = model + '_' + point
             print jobName
-            proc = subprocess.Popen(['bsub', '-q', nodePool, '-J', jobName, '-o', LOGDIR + '/' + jobName + '.log', '{script} {model} {point} {add}'.format(script = script, model = model, point = point, add = ' '.join(additionalArgs))])
-            proc.communicate()
+            command = '{script} {model} {point} {add}'.format(script = script, model = model, point = point, add = ' '.join(additionalArgs))
+            proc = subprocess.Popen(['bsub', '-q', nodePool, '-J', jobName, '-o', LOGDIR + '/' + jobName + '.log', command], stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+            for line in proc.communicate()[0].split('\n'):
+                print line
 
     else:
         runOnInteractiveNodes(points, script, nodePool, additionalArgs)

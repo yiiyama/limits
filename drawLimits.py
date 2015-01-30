@@ -9,7 +9,6 @@ ROOT.gErrorIgnoreLevel = 2000
 ROOT.gStyle.SetOptStat(0)
 
 TITLEBASE = 'CMS Preliminary, 19.7 fb^{-1}, #sqrt{s} = 8 TeV'
-ASYMPTOTIC = True
 
 def suffix(sig):
     suf = ''
@@ -212,6 +211,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         limits[0][coord] = vLimMed[0]
         limits[1][coord] = vLimP1s[0]
         limits[2][coord] = vLimP2s[0]
+
+    asymptotic = (min(bestMethods.values()) == 0)
 
     xsecs = {}
     xsecErrors = {}
@@ -451,7 +452,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
 
         upperlim[sig].SetTitle(title)
 
-        if ASYMPTOTIC: axisTitle += ' asymptotic CL_{s}'
+        if asymptotic: axisTitle += ' asymptotic CL_{s}'
         else: axisTitle += ' CL_{s}'
         axisTitle += ' (pb)'
 
@@ -534,6 +535,11 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     
                 contSource.Delete()
 
+
+#    expcol = ROOT.gROOT.GetListOfColors().GetSize()
+#    col = ROOT.TColor(expcol, 196./255., 196./255., 196./255.)
+    expcol = ROOT.kRed
+    obscol = ROOT.kBlack
 
     if ndim == 1:
         ymax = 0.
@@ -618,7 +624,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         exp1s.SetLineWidth(0)
         exp2s.SetFillColor(ROOT.kYellow)
         exp2s.SetLineWidth(0)
-        observed.SetLineColor(ROOT.kBlack)
+        observed.SetLineColor(obscol)
         observed.SetLineStyle(ROOT.kSolid)
         observed.SetLineWidth(2)
         observed.SetMarkerStyle(21)
@@ -665,9 +671,9 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         for contour in contours[(0, 0)]:
             truncateContour(contour, crosssect[0])
 #            closeContour(contour, crosssect[0])
-            contour.SetLineColor(ROOT.kRed)
+            contour.SetLineColor(expcol)
             contour.SetLineWidth(4)
-            contour.Draw('L')
+            contour.Draw('C')
             
             for iP in range(contour.GetN()):
                 y = contour.GetY()[iP]
@@ -677,17 +683,17 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
             for contour in contours[(sig, 0)]:
                 truncateContour(contour, crosssect[0])
 #                closeContour(contour, crosssect[0])
-                contour.SetLineColor(ROOT.kRed)
+                contour.SetLineColor(expcol)
                 contour.SetLineWidth(2)
                 contour.SetLineStyle(ROOT.kDashed)
-                contour.Draw('L')
+                contour.Draw('C')
     
         for contour in contours[(3, 0)]:
             truncateContour(contour, crosssect[0])
 #            closeContour(contour, crosssect[0])
-            contour.SetLineColor(ROOT.kBlack)
+            contour.SetLineColor(obscol)
             contour.SetLineWidth(4)
-            contour.Draw('L')
+            contour.Draw('C')
             
             for iP in range(contour.GetN()):
                 y = contour.GetY()[iP]
@@ -697,10 +703,10 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
             for contour in contours[(3, theo)]:
                 truncateContour(contour, crosssect[0])
 #                closeContour(contour, crosssect[0])
-                contour.SetLineColor(ROOT.kBlack)
+                contour.SetLineColor(obscol)
                 contour.SetLineWidth(2)
                 contour.SetLineStyle(ROOT.kDashed)
-                contour.Draw('L')
+                contour.Draw('C')
     
         yUp = (maxY - background.GetYaxis().GetXmin()) * 0.9 / 0.6 + background.GetYaxis().GetXmin()
         if yUp <= background.GetYaxis().GetXmax():
@@ -741,7 +747,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     if ndim == 1:
         header.AddText(0.02, 0.84, titles[0])
         text = '95%'
-        if ASYMPTOTIC: text += ' asymptotic'
+        if asymptotic: text += ' asymptotic'
         text += ' CL_{s} cross section upper limits'
         if xsecScale != 1.:
             text += ' (BR=%.2f)' % xsecScale
@@ -750,9 +756,9 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         line = header.AddLine(0.02, 0.48, 0.08, 0.48)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kSolid)
-        line.SetLineColor(ROOT.kBlack)
+        line.SetLineColor(obscol)
         box = header.AddBox(0.046, 0.46, 0.054, 0.5)
-        box.SetFillColor(ROOT.kBlack)
+        box.SetFillColor(obscol)
         box.SetLineWidth(0)
         header.AddText(0.1, 0.44, 'Observed')
 
@@ -806,7 +812,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
     else:
         header.AddText(0.02, 0.84, titles[0])
         text = '95%'
-        if ASYMPTOTIC: text += ' asymptotic'
+        if asymptotic: text += ' asymptotic'
         text += ' CL_{s} exclusion'
         if xsecScale != 1.:
             text += ' (BR=%.2f)' % xsecScale
@@ -815,29 +821,29 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         line = header.AddLine(0.02, 0.43, 0.08, 0.43)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
-        line.SetLineColor(ROOT.kBlack)
+        line.SetLineColor(obscol)
         line = header.AddLine(0.02, 0.39, 0.08, 0.39)
         line.SetLineWidth(4)
         line.SetLineStyle(ROOT.kSolid)
-        line.SetLineColor(ROOT.kBlack)
+        line.SetLineColor(obscol)
         line = header.AddLine(0.02, 0.35, 0.08, 0.35)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
-        line.SetLineColor(ROOT.kBlack)
+        line.SetLineColor(obscol)
         header.AddText(0.1, 0.33, 'Observed #pm 1 #sigma_{theory}')
 
         line = header.AddLine(0.02, 0.18, 0.08, 0.18)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
-        line.SetLineColor(ROOT.kRed)
+        line.SetLineColor(expcol)
         line = header.AddLine(0.02, 0.14, 0.08, 0.14)
         line.SetLineWidth(4)
         line.SetLineStyle(ROOT.kSolid)
-        line.SetLineColor(ROOT.kRed)
+        line.SetLineColor(expcol)
         line = header.AddLine(0.02, 0.1, 0.08, 0.1)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
-        line.SetLineColor(ROOT.kRed)
+        line.SetLineColor(expcol)
         header.AddText(0.1, 0.08, 'Expected #pm 1 #sigma_{experiment}')
 
     header.Draw()

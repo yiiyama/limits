@@ -28,9 +28,6 @@ else
     else
         if [ $MODEL = "TChiwg" ]; then
             for MCHI in $(seq 200 10 800); do
-                ## TEMP
-                [ $MCHI -eq 400 ] && continue
-                ## TEMP
                 POINTS="${POINTS}$MCHI "
             done
         elif [ $MODEL = "T5wg" ]; then
@@ -45,6 +42,8 @@ else
                     POINTS="${POINTS}M3_${M3}_M2_${M2} "
                 done
             done
+        else
+            exit 1
         fi
     fi
 
@@ -53,13 +52,13 @@ else
 
         mkdir $LOGDIR/$POINTNAME 2> /dev/null
 
-        INDEX=0
-        while [ $INDEX -lt $NSTEPS ]; do
+        for INDEX in $(seq 0 $(($NSTEPS-1))); do
             JOB=${POINTNAME}_${INDEX}
 
+            [ $(ls $OUTPUTDIR/grid_$POINTNAME/higgsCombineGrid${INDEX}.* 2>/dev/null | wc -l) -ne 0 ] && continue
+
+            echo bsub -q 8nh -J $JOB -o $LOGDIR/$POINTNAME/$INDEX.log "$CWD/clsgrid.sh $MODEL $POINT $INDEX"
             bsub -q 8nh -J $JOB -o $LOGDIR/$POINTNAME/$INDEX.log "$CWD/clsgrid.sh $MODEL $POINT $INDEX"
-    
-            INDEX=$(($INDEX+1))
         done
     done
 fi

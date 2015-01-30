@@ -2,9 +2,10 @@ import os
 import pickle
 import shutil
 import array
-import ROOT
 import sys
+import math
 import subprocess
+import ROOT
 
 import datacard
 
@@ -13,28 +14,7 @@ NSTEPS = 100
 
 def makeGrid(model, point, index, datadir, outputdir):
 
-    # prepare data card from result.pkl (observation & exp errors) and {model}.pkl (signal expectation)
-
-    print 'Preparing data card'
-
-    with open(datadir + '/result.pkl') as source:
-        channels = pickle.load(source)
-
-    with open(datadir + '/' + model + '.pkl') as source:
-        signals = pickle.load(source)
-
     pointName = model + '_' + point
-
-    signalData = signals[pointName][0]
-    for name, channel in channels.items():
-        channel.processes['signal'] = signalData[name]
-
-    workdir = os.environ['TMPDIR'] + '/' + pointName
-    os.makedirs(workdir)
-
-    cardPath = workdir + '/' + pointName + '.dat'
-
-    datacard.writeDataCard(channels, cardPath)
 
     # get rvalue range from {model}.root
 
@@ -54,22 +34,43 @@ def makeGrid(model, point, index, datadir, outputdir):
     iEntry = 0
     while limitTree.GetEntry(iEntry) > 0:
         iEntry += 1
-
-        if vPointName.tostring().strip()[:-1] == pointName:
-            rlow = vLimM2s[0] * 0.7
-            rhigh = vLimP2s[0] * 1.5
+        
+        if vPointName.tostring().strip().strip('\0') == pointName:
+            lnrlow = math.log(vLimM2s[0] * 0.7)
+            lnrhigh = math.log(vLimP2s[0] * 1.5)
             break
     else:
         raise RuntimeError('Bounds for ' + pointName + ' not found')
 
     limitFile.Close()
 
-    rval = rlow + (rhigh - rlow) / NSTEPS * index
+    rval = math.exp(lnrlow + (lnrhigh - lnrlow) / NSTEPS * index)
+
+    # prepare data card from result.pkl (observation & exp errors) and {model}.pkl (signal expectation)
+
+    print 'Preparing data card'
+
+    with open(datadir + '/result.pkl') as source:
+        channels = pickle.load(source)
+
+    with open(datadir + '/' + model + '.pkl') as source:
+        signals = pickle.load(source)
+
+    signalData = signals[pointName][0]
+    for name, channel in channels.items():
+        channel.processes['signal'] = signalData[name]
+
+    workdir = os.environ['TMPDIR'] + '/' + pointName
+    os.makedirs(workdir)
+
+    cardPath = workdir + '/' + pointName + '.dat'
+
+    datacard.writeDataCard(channels, cardPath)
 
     # run combine
 
     suffix = 'Grid' + str(index)
-    command = 'combine ' + cardPath + ' -n ' + suffix + ' -M HybridNew -s -1 --freq --clsAcc 0 -T 500 -i 2 --fork 4 --saveToys --saveHybridResult --singlePoint ' + str(rval)
+    command = 'combine ' + cardPath + ' -n ' + suffix + ' -M HybridNew -s -1 --freq --clsAcc 0 -T 500 -i 4 --fork 4 --saveToys --saveHybridResult --singlePoint ' + str(rval)
 
     print command
 
@@ -78,8 +79,8 @@ def makeGrid(model, point, index, datadir, outputdir):
     for line in proc.communicate()[0].split('\n'):
         print line
     
-    if not os.path.isdir(outputdir + '/' + pointName):
-        os.mkdir(outputdir + '/' + pointName)
+    if not os.path.isdir(outputdir):
+        os.mkdir(outputdir)
 
     for fileName in os.listdir(workdir):
         if fileName.startswith('higgsCombine' + suffix + '.HybridNew') and fileName.endswith('.root'):
@@ -104,7 +105,7 @@ def makeGrid(model, point, index, datadir, outputdir):
                     if 'Error' in line:
                         raise RuntimeError('Error found in output')
 
-            shutil.copy(workdir + '/' + fileName, outputdir + '/' + pointName + '/' + fileName)
+            shutil.copy(workdir + '/' + fileName, outputdir + '/' + fileName)
 
 if __name__ == '__main__':
 
@@ -114,4 +115,4 @@ if __name__ == '__main__':
     datadir = sys.argv[4]
     outputdir = sys.argv[5]
 
-    makeGrid(model, point, index, datadir, outputdir)
+    makeGrid(model, point, index, datadir, outputdir + '/grid_' + model + '_' + point)

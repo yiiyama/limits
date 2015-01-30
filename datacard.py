@@ -1,8 +1,10 @@
+import sys
 import math
 import collections
 import ROOT
 
-import linkplotstack
+#import linkplotstack
+sys.path.append('/afs/cern.ch/user/y/yiiyama/src/GammaL/plotstack')
 import locations
 
 LUMI = '19712.'

@@ -206,13 +206,13 @@ def fullCLs(card, workdir, vLimits, gridfile):
     Run combine in HybridNew mode and return the resulting expected limits in the form of python dict (using getLimits)    
     """
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid ' + gridfile + ' 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid ' + gridfile + ' --fullGrid 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
     output = proc.communicate()[0]
 
     writeLog('Observed', output)
 
     for quant in ['0.025', '0.16', '0.5', '0.84', '0.975']:
-        proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid ' + gridfile + ' --expectedFromGrid ' + quant + ' 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+        proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid ' + gridfile + ' --expectedFromGrid ' + quant + ' --fullGrid 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
         output = proc.communicate()[0]
         
         writeLog('Expected ' + quant, output)
@@ -349,5 +349,13 @@ if __name__ == '__main__':
     signalData = signals[pointName][0]
     for name, channel in channels.items():
         channel.processes['signal'] = signalData[name]
+
+    if options.gridfile and os.path.isdir(options.gridfile):
+        proc = subprocess.Popen('hadd -f ' + options.gridfile + '/grid_' + pointName + '.root ' + options.gridfile + '/higgsCombineGrid*.root', shell = True)
+        proc.communicate()
+        if proc.returncode != 0:
+            sys.exit(1)
+
+        options.gridfile += '/grid_' + pointName + '.root'
 
     computeLimits(pointName, channels, outputdir, options.gridfile)
