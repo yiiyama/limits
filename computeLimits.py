@@ -15,7 +15,7 @@ import datacard
 
 SETENV = 'cd /afs/cern.ch/user/y/yiiyama/cmssw/Combine612; eval `scram runtime -sh`;'
 XSECDIR = '/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs'
-FULLCLS = True
+FULLCLS = False
 FORCEPROF = False
 
 def getLimits(fileName, vLimits, calculate = False):
@@ -49,11 +49,11 @@ def getLimits(fileName, vLimits, calculate = False):
 
         n = len(rArr)
 
-        vLimits['m2s'][0] = rArr[int(0.05 * n)]
-        vLimits['m1s'][0] = rArr[int(0.32 * n)]
+        vLimits['m2s'][0] = rArr[int(0.025 * n)]
+        vLimits['m1s'][0] = rArr[int(0.16 * n)]
         vLimits['med'][0] = rArr[int(0.5 * n)]
-        vLimits['p1s'][0] = rArr[int(0.68 * n)]
-        vLimits['p2s'][0] = rArr[int(0.95 * n)]
+        vLimits['p1s'][0] = rArr[int(0.84 * n)]
+        vLimits['p2s'][0] = rArr[int(0.975 * n)]
 
         try:
             obsIndex = next(i for i in range(nEntries) if toyIndices[i] == 0)
@@ -206,7 +206,7 @@ def fullCLs(card, workdir, vLimits, gridfile):
     Run combine in HybridNew mode and return the resulting expected limits in the form of python dict (using getLimits)    
     """
 
-    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --grid ' + gridfile + ' --fullGrid 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    proc = subprocess.Popen(SETENV + ' cd ' + workdir + '; combine ' + card + ' -n FullCLs -M HybridNew -s -1 --freq --plot plots.root --grid ' + gridfile + ' --fullGrid 2>&1', shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
     output = proc.communicate()[0]
 
     writeLog('Observed', output)
@@ -327,7 +327,7 @@ if __name__ == '__main__':
 
     from optparse import OptionParser
 
-    parser = OptionParser(usage = 'Usage: clsgrid.py [-i index] model point datadir outputdir logdir')
+    parser = OptionParser(usage = 'Usage: computeLimits.py model point pickle pkldir outputdir')
     parser.add_option('-g', '--grid', dest = 'gridfile', default = '', help = 'grid file')
 
     options, args = parser.parse_args()

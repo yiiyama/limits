@@ -2,12 +2,11 @@ import sys
 import os
 import ROOT
 
-import linkplotstack
+import datacard
+
 from stack import Group
 import locations
 from GammaL.config import stackConfigs
-
-import datacard
         
 def setupChannel(channel):
 

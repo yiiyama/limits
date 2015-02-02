@@ -139,7 +139,7 @@ def closeContour(contour, base):
         contour.SetPoint(contour.GetN() - 1, x, y)
 
 
-def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1., outputName = ''):
+def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsecScale = 1., outputName = ''):
 
     ndim = len(titles) - 1
     if ndim == 1:
@@ -643,8 +643,11 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
         expected.Draw('C')
         observed.Draw('CP')
 
-        rangeMin = ymin * 0.5
-        rangeMax = math.exp(math.log(ymax / rangeMin) * 0.9 / 0.6 + math.log(rangeMin))
+        if axisRange:
+            rangeMin, rangeMax = axisRange
+        else:
+            rangeMin = ymin * 0.5
+            rangeMax = math.exp(math.log(ymax / rangeMin) * 0.9 / 0.6 + math.log(rangeMin))
 
         exp2s.SetTitle(TITLEBASE)
         exp2s.GetXaxis().SetTitle(upperlim[0].GetXaxis().GetTitle())
@@ -716,15 +719,25 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, xsecScale = 1.,
             w = background.GetYaxis().GetBinWidth(1)
             n += int((yUp - background.GetYaxis().GetXmax()) / w)
             background.SetBins(background.GetNbinsX(), background.GetXaxis().GetXmin(), background.GetXaxis().GetXmax(), n, background.GetYaxis().GetXmin(), background.GetYaxis().GetXmin() + n * w)
-    
-        minZ = 1000.
-        for iX in range(1, background.GetNbinsX() + 1):
-            for iY in range(1, background.GetNbinsY() + 1):
-                cont = background.GetBinContent(iX, iY)
-                if cont != 0. and cont < minZ:
-                    minZ = cont
+
+        if axisRange:
+            minZ, maxZ = axisRange
+        else:
+            minZ = 1000.
+            maxZ = -1.
+            for iX in range(1, background.GetNbinsX() + 1):
+                for iY in range(1, background.GetNbinsY() + 1):
+                    cont = background.GetBinContent(iX, iY)
+                    if cont != 0. and cont < minZ:
+                        minZ = cont
+                    if cont > maxZ:
+                        maxZ = cont
+
+            minZ *= 0.8
+            maxZ *= 1.2
     
         background.SetMinimum(minZ * 0.8)
+        background.SetMaximum(maxZ * 0.8)
 
     header = ROOT.TPaveText()
     header.SetOption('')
@@ -875,20 +888,26 @@ if __name__ == '__main__':
     if model == 'T5wg':
         form = 'T5wg_([0-9]+)_([0-9]+)'
         titles = ('pp #rightarrow #tilde{g} #tilde{g}, #tilde{g} #rightarrow q #bar{q} #tilde{#chi}^{0/#pm}, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{g}} (GeV)', 'M_{#tilde{#chi}} (GeV)')
+        axisRange = (1.e-3, 5.e-2)
     elif model == 'TChiwg':
         form = 'TChiwg_([0-9]+)'
         titles = ('pp #rightarrow #tilde{#chi}^{#pm} #tilde{#chi}^{0}, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{#chi}} (GeV)')
+        axisRange = None
     elif model == 'T5wg+TChiwg':
         form = 'T5wg\\+TChiwg_([0-9]+)_([0-9]+)'
         titles = ('Simplified GMSB, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{g}} (GeV)', 'M_{#tilde{#chi}} (GeV)')
+        axisRange = None
     elif model == 'Spectra_gW':
         form = 'Spectra_gW_M3_([0-9]+)_M2_([0-9]+)'
         titles = ('GGM Wino-like NLSP NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
+        axisRange = (1.e-2, 2.e-1)
     elif model == 'Spectra_gW_nc':
         form = 'Spectra_gW_nc_M3_([0-9]+)_M2_([0-9]+)'
         titles = ('GGM Wino-like NLSP EWK only NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
+        axisRange = None
     elif model == 'Spectra_gW_gg':
         form = 'Spectra_gW_gg_M3_([0-9]+)_M2_([0-9]+)'
         titles = ('GGM Wino-like NLSP strong only NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
+        axisRange = None
 
-    drawLimits(model, sourceName, plotsDir, form, titles, xsecScale = options.xsecScale, outputName = options.outputName)
+    drawLimits(model, sourceName, plotsDir, form, titles, axisRange, xsecScale = options.xsecScale, outputName = options.outputName)
