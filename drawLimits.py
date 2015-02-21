@@ -8,7 +8,9 @@ ROOT.gROOT.SetBatch(True)
 ROOT.gErrorIgnoreLevel = 2000
 ROOT.gStyle.SetOptStat(0)
 
-TITLEBASE = 'CMS Preliminary, 19.7 fb^{-1}, #sqrt{s} = 8 TeV'
+lumi = 19712.
+
+TITLEBASE = 'CMS Preliminary, %.1f fb^{-1}, #sqrt{s} = 8 TeV' % (lumi / 1000.)
 
 def suffix(sig):
     suf = ''
@@ -260,6 +262,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
             nEvents[coord] = math.pow(nEventsW, 2.) / nEventsW2
         else:
             nEvents[coord] = 0.
+
         for lepton in ['Electron', 'Muon']:
             if yieldsW2[lepton] > 0.:
                 yields[lepton][coord] = math.pow(yieldsW[lepton], 2.) / yieldsW2[lepton]
@@ -319,6 +322,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
 
     # acceptance plot
     Ae = []
+    AeHisto = {}
     for lept, table in yields.items():
         if ndim == 1:
             numer = template.Clone('numer')
@@ -337,6 +341,9 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
             acceptance.SetMarkerColor(ROOT.kBlack)
             acceptance.SetMarkerStyle(8)
             acceptance.SetMarkerSize(0.5)
+
+            AeHisto[lept] = numer.Clone('acceptance_' + lept)
+            AeHisto[lept].Divide(denom)
 
             numer.Delete()
             denom.Delete()
@@ -357,6 +364,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
                         Ae.append(f)
                 except:
                     pass
+
+            AeHisto[lept] = acceptance
 
             drawOption = DRAWOPTION
 
@@ -434,6 +443,45 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
         canvas.Print(plotsDir + '/' + model + '_crosssect' + suffix(sig) + '.pdf')
 
 #    canvas.SetLogz(True)
+
+    # expected events
+    for lepton in ['Electron', 'Muon']:
+        expN = template.Clone('expN_' + lepton)
+        expN.SetTitle('Expected Number of Events (' + lepton + ' channel)')
+
+        axisTitle = 'Number of events'
+        if ndim == 1:
+            expN.GetYaxis().SetTitle(axisTitle)
+        else:
+            expN.GetZaxis().SetTitle(axisTitle)
+
+        maxN = 0.
+        minN = 1000.
+        for coord, xsec in xsecs.items():
+            bin = expN.FindBin(*coord)
+            n = xsec * AeHisto[lepton].GetBinContent(bin) * lumi
+            expN.SetBinContent(bin, n)
+            if n > maxN: maxN = n
+            if n < minN: minN = n
+
+        expN.SetMinimum(minN * 0.5)
+        expN.SetMaximum(maxN * 1.5)
+            
+        expN.Write()
+        expN.Draw(DRAWOPTION)
+        ROOT.gPad.Update()
+
+        if ndim == 2:
+            zaxis = expN.GetZaxis()
+            zaxis.SetTickLength(0.02)
+            palette = expN.GetListOfFunctions().FindObject('palette')
+            if palette:
+                palette.SetX2NDC(palette.GetX1NDC() + (palette.GetX2NDC() - palette.GetX1NDC()) * 0.7)
+                palette.SetTitleOffset(1.5)
+                palette.SetLabelSize(0.03)
+
+        canvas.Print(plotsDir + '/' + model + '_expN_' + lepton + '.pdf')
+
 
     # upper limit plots
     upperlim = {}
@@ -899,15 +947,15 @@ if __name__ == '__main__':
         axisRange = None
     elif model == 'Spectra_gW':
         form = 'Spectra_gW_M3_([0-9]+)_M2_([0-9]+)'
-        titles = ('GGM Wino-like NLSP NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
+        titles = ('GGM Wino-like NLSP NLO+NLL', 'gluino mass (GeV)', 'wino mass (GeV)')
         axisRange = (1.e-2, 2.e-1)
     elif model == 'Spectra_gW_nc':
         form = 'Spectra_gW_nc_M3_([0-9]+)_M2_([0-9]+)'
-        titles = ('GGM Wino-like NLSP EWK only NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
+        titles = ('GGM Wino-like NLSP EWK only NLO+NLL', 'gluino mass (GeV)', 'wino mass (GeV)')
         axisRange = None
     elif model == 'Spectra_gW_gg':
         form = 'Spectra_gW_gg_M3_([0-9]+)_M2_([0-9]+)'
-        titles = ('GGM Wino-like NLSP strong only NLO+NLL', 'M_{3} (GeV)', 'M_{2} (GeV)')
+        titles = ('GGM Wino-like NLSP strong only NLO+NLL', 'gluino mass (GeV)', 'wino mass (GeV)')
         axisRange = None
 
     drawLimits(model, sourceName, plotsDir, form, titles, axisRange, xsecScale = options.xsecScale, outputName = options.outputName)
