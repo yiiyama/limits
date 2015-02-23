@@ -107,8 +107,13 @@ def getJESUncert(samplesAndScales, cut, nominal):
     if abs(shiftUp) < 5.e-4 and abs(shiftDown) < 5.e-4:
         return 0.
 
-    # always use sign of upward JES shift
-    return boundVal(max(abs(shiftUp), abs(shiftDown)) * shiftUp / abs(shiftUp))
+    # use the sign of upward JES shift unless shiftUp == 0
+    try:
+        sign = shiftUp / abs(shiftUp)
+    except ZeroDivisionError:
+        sign = shiftDown / abs(shiftDown)
+    
+    return boundVal(max(abs(shiftUp), abs(shiftDown)) * sign)
 
 
 def getJERUncert(samplesAndScales, cut, nominal):

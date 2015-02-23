@@ -4,11 +4,9 @@ import math
 import array
 import ROOT
 
-import linkplotstack
+import datacard
 
 from GammaL.countSignal import getDataset
-
-import datacard
 
 tmpFile = None
 

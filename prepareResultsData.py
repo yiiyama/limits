@@ -176,6 +176,20 @@ if __name__ == '__main__':
                     setupChannel(ch)
                     channels[channelName] = ch
 
+    # renormalize VGamma uncertainties
+    totalNumer = {'jes': 0., 'jer': 0.}
+    totalDenom = 0.
+    for channel in channels.values():
+        proc = channel.processes['VGamma']
+        for nuis in totalNumer.keys():
+            totalNumer[nuis] += proc.nuisances[nuis] * proc.rate()
+        totalDenom += proc.rate()
+
+    for channel in channels.values():
+        proc = channel.processes['VGamma']
+        for nuis in totalNumer.keys():
+            proc.nuisances[nuis] = (1. + proc.nuisances[nuis]) / (1. + totalNumer[nuis] / totalDenom) - 1.
+
     tmpFile.Close()
 
     with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + outputName, 'wb') as outputFile:

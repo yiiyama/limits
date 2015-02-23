@@ -5,8 +5,11 @@ import pickle
 import ROOT
 
 ROOT.gROOT.SetBatch(True)
+rootlogon = ROOT.gEnv.GetValue("Rint.Logon", "")
+if rootlogon:
+    ROOT.gROOT.Macro(rootlogon)
+
 ROOT.gErrorIgnoreLevel = 2000
-ROOT.gStyle.SetOptStat(0)
 
 lumi = 19712.
 
@@ -300,16 +303,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
     else:
         template = ROOT.TH2D('template', ';' + ';'.join(titles[1:]), nbins[0], centers[0][0] - width[0] / 2., centers[0][-1] + width[0] / 2., nbins[1], centers[1][0] - width[1] / 2., centers[1][-1] + width[1] / 2.)
 
-    template.GetXaxis().SetTitleOffset(1.3)
-    template.GetYaxis().SetTitleOffset(1.6)
-    template.GetXaxis().SetLabelSize(0.03)
-    template.GetYaxis().SetLabelSize(0.03)
-
-    canvas = ROOT.TCanvas('limits', 'limits', 800, 800)
-    canvas.SetLeftMargin(0.13)
-    if ndim == 1:
-        canvas.SetRightMargin(0.1)
-    else:
+    canvas = ROOT.TCanvas('limits', 'limits', 2)
+    if ndim == 2:
         canvas.SetRightMargin(0.17)
 
     output = ROOT.TFile.Open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + outputName + '.root', 'recreate')
@@ -369,7 +364,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
 
             drawOption = DRAWOPTION
 
-        acceptance.SetTitle('A #times #epsilon (' + lept + ' channel)')
+        acceptance.SetTitle('A #times #varepsilon (' + lept + ' channel)')
 
         acceptance.Write()
 

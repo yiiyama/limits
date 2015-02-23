@@ -23,15 +23,16 @@ with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/xsecs/Spectra_gW.xse
         for name, procs, events in plist:
             if name == 'nc':
                 entries = {}
-                source = ROOT.TFile.Open('/store/RA3Ntuples/SusyNtuples/cms538v1p2/PrivateMC/Spectra_gW/susyEvents_' + point + '_ncp.root')
-                tree = source.Get('susyTree')
-                entries['ncp'] = float(tree.GetEntries())
-                source.Close()
-                source = ROOT.TFile.Open('/store/RA3Ntuples/SusyNtuples/cms538v1p2/PrivateMC/Spectra_gW/susyEvents_' + point + '_ncm.root')
-                tree = source.Get('susyTree')
-                entries['ncm'] = float(tree.GetEntries())
-                source.Close()
 
+                for proc in procs:
+                    source = ROOT.TFile.Open('/store/RA3Ntuples/SusyNtuples/cms538v1p2/PrivateMC/Spectra_gW/susyEvents_' + point + '_' + proc + '.root')
+                    tree = source.Get('susyTree')
+                    entries[proc] = float(tree.GetEntries())
+                    source.Close()
+
+                # Pythia generates chi^0 + chi^+-. Breakdown to positive and negative charginos unknown. Inferred from how many of each survived the gen-level filter.
+                # Since BRs chi^0 -> photon and chi^+- -> W^+- -> leptons do not depend on the sign of the chargino, this should give a fairly accurate estimation of the
+                # generated numbers.
                 total = dict([(p, int(events * entries[p] / (entries['ncp'] + entries['ncm']))) for p in ['ncp', 'ncm']])
 
             else:
