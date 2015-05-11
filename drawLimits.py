@@ -12,8 +12,7 @@ if rootlogon:
 ROOT.gErrorIgnoreLevel = 2000
 
 lumi = 19712.
-
-TITLEBASE = 'CMS Preliminary, %.1f fb^{-1}, #sqrt{s} = 8 TeV' % (lumi / 1000.)
+imgform = '.pdf'
 
 def suffix(sig):
     suf = ''
@@ -144,7 +143,14 @@ def closeContour(contour, base):
         contour.SetPoint(contour.GetN() - 1, x, y)
 
 
-def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsecScale = 1., outputName = ''):
+def valueAxis(plot, ndim):
+    if ndim == 1:
+        return plot.GetYaxis()
+    else:
+        return plot.GetZaxis()
+
+
+def drawLimits(model, sourceName, plotsDir, pointFormat, titles, order, axisRange, xsecScale = 1., outputName = ''):
 
     ndim = len(titles) - 1
     if ndim == 1:
@@ -154,6 +160,8 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
 
     if not outputName:
         outputName = model + '_limits'
+
+    chName = {'Electron': 'e#gamma', 'Muon': '#mu#gamma'}
 
     # Tree with information on one signal point per row. Columns are the name, calculation method, median and +-1/2 sigma signal strength upper bounds of the point.
     inputTree = ROOT.TChain('limitTree')
@@ -223,7 +231,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
     xsecErrors = {}
     nEvents = {}
     yields = {'Electron': {}, 'Muon': {}}
-        
+       
     with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + model + '.pkl', 'rb') as pickleSource:
         datacard = pickle.load(pickleSource)
 
@@ -272,6 +280,36 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
             else:
                 yields[lepton][coord] = 0.
 
+    # temporary - BR should be part of GenInfo in the future
+    glEvents = {'Electron': {}, 'Muon': {}}
+    if model == 'Spectra_gW':
+        with open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/brs/' + model + '.brs') as brSource:
+            dump = dict([(lepton, dict([(coord, {}) for coord in coords.values()])) for lepton in ['Electron', 'Muon']])
+            for line in brSource:
+                componentPoint, nFiltered, nEl, nMu = line.strip().split()
+                pointName = componentPoint[:componentPoint.rfind('_')]
+                if pointName not in coords: continue
+                coord = coords[pointName]
+
+                dump['Electron'][coord][componentPoint] = int(nEl)
+                dump['Muon'][coord][componentPoint] = int(nMu)
+
+        for pointName, coord in coords.items():
+            genInfo = datacard[pointName][1]
+            for lepton in ['Electron', 'Muon']:
+                sumW = 0.
+                sumW2 = 0.
+                for componentPoint, info in genInfo.items():
+                    sumW += dump[lepton][coord][componentPoint] * info.xsec
+                    sumW2 += dump[lepton][coord][componentPoint] * info.xsec * info.xsec
+
+                glEvents[lepton][coord] = math.pow(sumW, 2.) / sumW2
+
+    else:
+        for lepton in ['Electron', 'Muon']:
+            for coord in coords.values():
+                glEvents[lepton][coord] = nEvents[coord] * 0.107
+
 #    edges = [[], []]
 #    for iD in range(ndim):
 #        centers[iD] = sorted(list(set(centers[iD])))
@@ -293,19 +331,85 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
         width[iD] = float(centers[iD][1] - centers[iD][0])
         nbins[iD] = int(float(centers[iD][-1] - centers[iD][0]) / width[iD]) + 1
 
+# graphical elements
+
+    for x in ['X', 'Y', 'Z']:
+        ROOT.gStyle.SetLabelSize(0.04, x)
+        ROOT.gStyle.SetTitleSize(0.05, x)
+        ROOT.gStyle.SetNdivisions(210, x)
+
+    if ndim == 1:
+        ROOT.gStyle.SetTitleOffset(1.2, 'Y')
+    else:
+        ROOT.gStyle.SetTitleOffset(1.35, 'Y')
+    ROOT.gStyle.SetTitleOffset(1.3, 'Z')
+
+    ROOT.gStyle.SetHistLineWidth(2)
+    ROOT.gStyle.SetHistLineColor(ROOT.kBlack)
+
+    if ndim == 1:
+        canvas = ROOT.TCanvas('limits', 'limits', 600, 600)
+    else:
+        canvas = ROOT.TCanvas('limits', 'limits', 650, 600)
+
+    canvas.SetTopMargin(0.08)
+    canvas.SetBottomMargin(0.12)
+    canvas.SetLeftMargin(0.14)
+    if ndim == 2:
+        canvas.SetRightMargin(0.17)
+        
+    canvas.SetTicks(1, 1)
+        
     if ndim == 1:
         template = ROOT.TH1D('template', ';' + titles[1], nbins[0], centers[0][0] - width[0] / 2., centers[0][-1] + width[0] / 2.)
-        template.SetLineWidth(2)
         template.SetMarkerSize(0)
         template.SetMarkerStyle(1)
-        template.SetLineColor(ROOT.kBlack)
 
     else:
         template = ROOT.TH2D('template', ';' + ';'.join(titles[1:]), nbins[0], centers[0][0] - width[0] / 2., centers[0][-1] + width[0] / 2., nbins[1], centers[1][0] - width[1] / 2., centers[1][-1] + width[1] / 2.)
 
-    canvas = ROOT.TCanvas('limits', 'limits', 2)
-    if ndim == 2:
-        canvas.SetRightMargin(0.17)
+    template.Sumw2()
+
+    sqrtPave = ROOT.TPaveText()
+    sqrtPave.SetBorderSize(0)
+    sqrtPave.SetMargin(0.02)
+    sqrtPave.SetTextAlign(32)
+    sqrtPave.AddText('#sqrt{s} = 8 TeV')
+    sqrtPave.SetX1NDC(0.5)
+    sqrtPave.SetX2NDC(1. - canvas.GetRightMargin())
+    sqrtPave.SetY1NDC(1. - canvas.GetTopMargin())
+    sqrtPave.SetY2NDC(1.)
+
+    lumiPave = ROOT.TPaveText()
+    lumiPave.SetBorderSize(0)
+    lumiPave.SetMargin(0.)
+    lumiPave.SetTextAlign(32)
+    lumiPave.AddText('#sqrt{s} = 8 TeV, L = %.1f fb^{-1}' % (lumi / 1000.))
+    lumiPave.SetX1NDC(0.)
+    lumiPave.SetX2NDC(0.95)
+    lumiPave.SetY1NDC(1. - canvas.GetTopMargin())
+    lumiPave.SetY2NDC(1.)
+
+    cmsPave = ROOT.TPaveText()
+    cmsPave.SetBorderSize(0)
+    cmsPave.SetMargin(0.)
+    cmsPave.SetTextAlign(12)
+#    cmsPave.AddText('CMS #font[52]{Preliminary}')
+    cmsPave.AddText('CMS')
+    cmsPave.SetX1NDC(canvas.GetLeftMargin() + 0.03)
+    cmsPave.SetX2NDC(1.)
+    cmsPave.SetY1NDC(1. - canvas.GetTopMargin() - 0.08)
+    cmsPave.SetY2NDC(1. - canvas.GetTopMargin() - 0.03)
+
+    cmsuPave = ROOT.TPaveText()
+    cmsuPave.SetBorderSize(0)
+    cmsuPave.SetMargin(0.)
+    cmsuPave.SetTextAlign(12)
+    cmsuPave.AddText('CMS #font[52]{Unpublished}')
+    cmsuPave.SetX1NDC(canvas.GetLeftMargin() + 0.03)
+    cmsuPave.SetX2NDC(1.)
+    cmsuPave.SetY1NDC(1. - canvas.GetTopMargin() - 0.08)
+    cmsuPave.SetY2NDC(1. - canvas.GetTopMargin() - 0.03)
 
     output = ROOT.TFile.Open('/afs/cern.ch/user/y/yiiyama/output/GammaL/limits/' + outputName + '.root', 'recreate')
 
@@ -314,6 +418,87 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
     else:
         canvas.SetLogz(True)
         setPalette(1.)
+
+    # BR plot
+    BR = []
+    BRHisto = {}
+    for lept, table in glEvents.items():
+        if ndim == 1:
+            numer = template.Clone('numer')
+            denom = template.Clone('denom')
+            for coord, y in table.items():
+                bin = numer.FindBin(*coord)
+                numer.SetBinContent(bin, y)
+                denom.SetBinContent(bin, nEvents[coord])
+                f = float(y) / nEvents[coord]
+                if f > 0.:
+                    BR.append(f)
+            
+            branching = ROOT.TGraphAsymmErrors(numer, denom)
+            branching.SetName('branching_' + lept)
+            branching.SetTitle('')
+            branching.GetXaxis().SetTitle(template.GetXaxis().GetTitle())
+            branching.SetLineColor(ROOT.kBlack)
+            branching.SetMarkerColor(ROOT.kBlack)
+            branching.SetMarkerStyle(8)
+            branching.SetMarkerSize(0.5)
+
+            BRHisto[lept] = numer.Clone('branching_' + lept)
+            BRHisto[lept].Divide(denom)
+            BRHisto[lept].Scale(100.)
+
+            for iP in range(branching.GetN()):
+                branching.GetY()[iP] *= 100.
+                branching.SetPointEYhigh(iP, branching.GetErrorYhigh(iP) * 100.)
+                branching.SetPointEYlow(iP, branching.GetErrorYlow(iP) * 100.)
+
+            numer.Delete()
+            denom.Delete()
+
+            drawOption = 'AP'
+
+        else:
+            branching = template.Clone('branching_' + lept)
+
+            for coord, y in table.items():
+                try:
+                    bin = branching.FindBin(*coord)
+                    N = float(nEvents[coord])
+                    f = y / N
+                    branching.SetBinContent(bin, f * 100.)
+                    branching.SetBinError(bin, f * math.sqrt(1. / y + 1. / N) * 100.)
+                    if f > 0.:
+                        BR.append(f)
+                except:
+                    pass
+
+            BRHisto[lept] = branching
+
+            drawOption = DRAWOPTION
+
+        valueAxis(branching, ndim).SetTitle('BR(#gamma+#font[12]{l}+X) #times 100 (' + chName[lept] + ' channel)')
+
+        branching.Write()
+
+        if max(BR) / min(BR) < 10.:
+            if ndim == 1:
+                canvas.SetLogy(False)
+            else:
+                canvas.SetLogz(False)
+
+        branching.Draw(drawOption)
+        ROOT.gPad.Update()
+
+        if ndim == 2:
+            branching.GetZaxis().SetTickLength(0.02)
+            palette = branching.GetListOfFunctions().FindObject('palette')
+            if palette:
+                palette.SetX2NDC(palette.GetX1NDC() + (palette.GetX2NDC() - palette.GetX1NDC()) * 0.7)
+
+        lumiPave.Draw()
+        cmsuPave.Draw()
+        canvas.Print(plotsDir + '/' + model + '_branching_' + lept + imgform)
+
 
     # acceptance plot
     Ae = []
@@ -325,12 +510,14 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
             for coord, y in table.items():
                 bin = numer.FindBin(*coord)
                 numer.SetBinContent(bin, y)
-                denom.SetBinContent(bin, nEvents[coord])
-                f = float(y) / nEvents[coord]
+                denom.SetBinContent(bin, glEvents[lept][coord])
+                f = float(y) / glEvents[lept][coord]
                 if f > 0.:
                     Ae.append(f)
             
             acceptance = ROOT.TGraphAsymmErrors(numer, denom)
+            acceptance.SetName('acceptance_' + lept)
+            acceptance.SetTitle('')
             acceptance.GetXaxis().SetTitle(template.GetXaxis().GetTitle())
             acceptance.SetLineColor(ROOT.kBlack)
             acceptance.SetMarkerColor(ROOT.kBlack)
@@ -351,7 +538,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
             for coord, y in table.items():
                 try:
                     bin = acceptance.FindBin(*coord)
-                    N = float(nEvents[coord])
+                    N = float(glEvents[lept][coord])
                     f = y / N
                     acceptance.SetBinContent(bin, f)
                     acceptance.SetBinError(bin, f * math.sqrt(1. / y + 1. / N))
@@ -364,7 +551,7 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
 
             drawOption = DRAWOPTION
 
-        acceptance.SetTitle('A #times #varepsilon (' + lept + ' channel)')
+        valueAxis(acceptance, ndim).SetTitle('A #times #varepsilon (' + chName[lept] + ' channel)')
 
         acceptance.Write()
 
@@ -378,15 +565,14 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
         ROOT.gPad.Update()
 
         if ndim == 2:
-            zaxis = acceptance.GetZaxis()
-            zaxis.SetTickLength(0.02)
+            acceptance.GetZaxis().SetTickLength(0.02)
             palette = acceptance.GetListOfFunctions().FindObject('palette')
             if palette:
                 palette.SetX2NDC(palette.GetX1NDC() + (palette.GetX2NDC() - palette.GetX1NDC()) * 0.7)
-                palette.SetTitleOffset(1.5)
-                palette.SetLabelSize(0.03)
 
-        canvas.Print(plotsDir + '/' + model + '_acceptance_' + lept + '.pdf')
+        lumiPave.Draw()
+        cmsuPave.Draw()
+        canvas.Print(plotsDir + '/' + model + '_acceptance_' + lept + imgform)
 
 
     if ndim == 1:
@@ -399,18 +585,13 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
     crosssect = {}
     for sig in range(-2, 3):
         crosssect[sig] = template.Clone('crosssect_' + str(sig) + 'sigma')
-        title = 'Cross Section'
+        title = 'Cross section'
         if sig != 0:
-            title += ' %+d #sigma_{theory}' % sig
+            title += ' %+d #sigma_{%s}' % (sig, order)
         if xsecScale != 1.:
             title += ' (BR=%.2f)' % xsecScale
-        crosssect[sig].SetTitle(title)
 
-        axisTitle = '#sigma (pb)'
-        if ndim == 1:
-            crosssect[sig].GetYaxis().SetTitle(axisTitle)
-        else:
-            crosssect[sig].GetZaxis().SetTitle(axisTitle)
+        valueAxis(crosssect[sig], ndim).SetTitle(title)
 
         minXS = 1000.
         for coord, xsec in xsecs.items():
@@ -427,34 +608,26 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
         ROOT.gPad.Update()
 
         if ndim == 2:
-            zaxis = crosssect[sig].GetZaxis()
-            zaxis.SetTickLength(0.02)
+            crosssect[sig].GetZaxis().SetTickLength(0.02)
             palette = crosssect[sig].GetListOfFunctions().FindObject('palette')
             if palette:
                 palette.SetX2NDC(palette.GetX1NDC() + (palette.GetX2NDC() - palette.GetX1NDC()) * 0.7)
-                palette.SetTitleOffset(1.5)
-                palette.SetLabelSize(0.03)
 
-        canvas.Print(plotsDir + '/' + model + '_crosssect' + suffix(sig) + '.pdf')
+        sqrtPave.Draw()
+        canvas.Print(plotsDir + '/' + model + '_crosssect' + suffix(sig) + imgform)
 
 #    canvas.SetLogz(True)
 
     # expected events
     for lepton in ['Electron', 'Muon']:
         expN = template.Clone('expN_' + lepton)
-        expN.SetTitle('Expected Number of Events (' + lepton + ' channel)')
-
-        axisTitle = 'Number of events'
-        if ndim == 1:
-            expN.GetYaxis().SetTitle(axisTitle)
-        else:
-            expN.GetZaxis().SetTitle(axisTitle)
+        valueAxis(expN, ndim).SetTitle('Expected number of events (' + chName[lepton] + ' channel)')
 
         maxN = 0.
         minN = 1000.
         for coord, xsec in xsecs.items():
             bin = expN.FindBin(*coord)
-            n = xsec * AeHisto[lepton].GetBinContent(bin) * lumi
+            n = xsec * BRHisto[lepton].GetBinContent(bin) / 100. * AeHisto[lepton].GetBinContent(bin) * lumi
             expN.SetBinContent(bin, n)
             if n > maxN: maxN = n
             if n < minN: minN = n
@@ -467,42 +640,37 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
         ROOT.gPad.Update()
 
         if ndim == 2:
-            zaxis = expN.GetZaxis()
-            zaxis.SetTickLength(0.02)
+            expN.GetZaxis().SetTickLength(0.02)
             palette = expN.GetListOfFunctions().FindObject('palette')
             if palette:
                 palette.SetX2NDC(palette.GetX1NDC() + (palette.GetX2NDC() - palette.GetX1NDC()) * 0.7)
-                palette.SetTitleOffset(1.5)
-                palette.SetLabelSize(0.03)
 
-        canvas.Print(plotsDir + '/' + model + '_expN_' + lepton + '.pdf')
+        lumiPave.Draw()
+        cmsuPave.Draw()
+        canvas.Print(plotsDir + '/' + model + '_expN_' + lepton + imgform)
 
 
     # upper limit plots
     upperlim = {}
     for sig in range(-2, 4):
-        upperlim[sig] = template.Clone('upperlim_' + str(sig) + 'sigma')
-        title = TITLEBASE
+        if sig == 3:
+            upperlim[sig] = template.Clone('upperlim_obs')
+        else:
+            upperlim[sig] = template.Clone('upperlim_' + str(sig) + 'sigma')
         axisTitle = '#sigma_{95%}'
         if sig == 3:
             axisTitle += '^{observed}'
-        elif sig == 0:
-            title += ' Expected'
-            axisTitle += '^{expected}'
         else:
-            title += ' Expected %+d #sigma_{experiment}' % sig
             axisTitle += '^{expected}'
-
-        upperlim[sig].SetTitle(title)
+            if sig != 0:
+                quantile = ['2.5', '16', '50', '84', '97.5']
+                axisTitle += quantile[sig + 2] + '% quantile'
 
         if asymptotic: axisTitle += ' asymptotic CL_{s}'
         else: axisTitle += ' CL_{s}'
         axisTitle += ' (pb)'
-
-        if ndim == 1:
-            upperlim[sig].GetYaxis().SetTitle(axisTitle)
-        else:
-            upperlim[sig].GetZaxis().SetTitle(axisTitle)
+            
+        valueAxis(upperlim[sig], ndim).SetTitle(axisTitle)
         
         for coord, limit in limits[sig].items():
             bin = upperlim[sig].FindBin(*coord)
@@ -514,15 +682,14 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
         ROOT.gPad.Update()
 
         if ndim == 2:
-            zaxis = upperlim[sig].GetZaxis()
-            zaxis.SetTickLength(0.02)
+            upperlim[sig].GetZaxis().SetTickLength(0.02)
             palette = upperlim[sig].GetListOfFunctions().FindObject('palette')
             if palette:
                 palette.SetX2NDC(palette.GetX1NDC() + (palette.GetX2NDC() - palette.GetX1NDC()) * 0.7)
-                palette.SetTitleOffset(1.5)
-                palette.SetLabelSize(0.03)
 
-        canvas.Print(plotsDir + '/' + model + '_upperlim' + suffix(sig) + '.pdf')
+        lumiPave.Draw()
+        cmsuPave.Draw()
+        canvas.Print(plotsDir + '/' + model + '_upperlim' + suffix(sig) + imgform)
 
 
     if ndim == 2:
@@ -537,32 +704,36 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
 
             key = (sig, theo)
 
-            exclusion[key] = template.Clone('exclusion_' + str(sig) + 'sigma')
-            title = 'Exclusion'
             if sig == 3:
-                if theo == 0:
-                    title += ' (Observed)'
-                else:
-                    title += ' (Observed %+d #sigma_{theory})' % theo
-            elif sig == 0:
-                title += ' (Expected)'
+                exclusion[key] = template.Clone('exclusion_obs_' + str(theo) + 'sigmatheo')
             else:
-                title += ' (Expected %+d #sigma_{experiment})' % sig
-            if xsecScale != 1.:
-                title += ' (BR=%.2f)' % xsecScale
-    
-            exclusion[key].SetTitle(title)
+                exclusion[key] = template.Clone('exclusion_expected_' + str(sig) + 'sigmaexp')
 
-            axisTitle = '#sigma - #sigma_{95%CL_{s}}^{up} (pb)'
-            if ndim == 1:
-                exclusion[key].GetYaxis().SetTitle(axisTitle)
+            theory = '#sigma_{%s}' % order
+            limit = '#sigma_{95%}'
+
+            if theo != 0:
+                theory += '^{%+d#sigma}' % theo
+            if sig == 3:
+                limit += '^{observed}'
+            elif sig == 0:
+                limit += '^{expected}'
             else:
-                exclusion[key].GetZaxis().SetTitle(axisTitle)
+                quantile = ['2.5', '16', '50', '84', '97.5']
+                limit += '^{expected %s%% quantile}' % quantile[sig + 2]
+
+            axisTitle = theory + ' - ' + limit
+            if xsecScale != 1.:
+                axisTitle += ' (BR=%.2f)' % xsecScale
+
+            if asymptotic: axisTitle += ' asymptotic CL_{s}'
+            else: axisTitle += ' CL_{s}'
+            axisTitle += ' (pb)'
+    
+            valueAxis(exclusion[key], ndim).SetTitle(axisTitle)
 
             exclusion[key].Add(crosssect[theo])
             exclusion[key].Add(upperlim[sig], -1.)
-    
-            exclusion[key].Write()
     
             if ndim == 2:
                 contours[key] = []
@@ -574,7 +745,9 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
                 canvas.Update()
                 contList = ROOT.gROOT.GetListOfSpecials().FindObject('contours').At(0)
                 for contour in contList:
-                    contours[key].append(contour.Clone())
+                    cont = contour.Clone()
+                    cont.Write(exclusion[key].GetName() + '_contour')
+                    contours[key].append(cont)
     
                 contSource.Delete()
 
@@ -692,26 +865,48 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
             rangeMin = ymin * 0.5
             rangeMax = math.exp(math.log(ymax / rangeMin) * 0.9 / 0.6 + math.log(rangeMin))
 
-        exp2s.SetTitle(TITLEBASE)
+        exp2s.SetTitle('')
         exp2s.GetXaxis().SetTitle(upperlim[0].GetXaxis().GetTitle())
-        exp2s.GetYaxis().SetTitle('#sigma (pb)')
+        exp2s.GetYaxis().SetTitle('')
+        exp2s.GetYaxis().SetLabelSize(0)
         exp2s.GetYaxis().SetRangeUser(rangeMin, rangeMax)
-        exp2s.GetYaxis().SetTitleOffset(1.5)
+
+        canvas.Update()
+
+        bottom = canvas.GetBottomMargin()
+        top = 1. - canvas.GetTopMargin()
+        xmin = exp2s.GetXaxis().GetXmin()
+        ymin = canvas.GetUymin()
+        ymax = canvas.GetUymax()
+        ymincoord = math.pow(10., ymin)
+        newymaxcoord = math.pow(10., ymin + (ymax - ymin) / (top - bottom) * (0.7 - bottom))
+
+        yaxis = ROOT.TGaxis(xmin, ymincoord, xmin, newymaxcoord, ymincoord, newymaxcoord, exp2s.GetYaxis().GetNdivisions(), 'GSB')
+        yaxis.SetTickSize(0.)
+        yaxis.SetLabelSize(ROOT.gStyle.GetLabelSize('Y'))
+        yaxis.SetLabelFont(ROOT.gStyle.GetLabelFont('Y'))
+        yaxis.SetTitleSize(ROOT.gStyle.GetTitleSize('Y'))
+        yaxis.SetTitleFont(ROOT.gStyle.GetTitleFont('Y'))
+        yaxis.SetTitleOffset(ROOT.gStyle.GetTitleOffset('Y'))
+        yaxis.SetTitle('#sigma (pb)')
+        yaxis.Draw()
 
     else:
         canvas.SetLogz(True)
+        canvas.Clear()
 
-        background = upperlim[3].Clone('background')
+        background = template.Clone('background')
+        for iX in range(1, background.GetNbinsX() + 1):
+            for iY in range(1, background.GetNbinsY() + 1):
+                background.SetBinContent(iX, iY, upperlim[3].GetBinContent(iX, iY))
+
         setPalette(1.5)
-    
+
+        background.GetZaxis().SetTickLength(0.02)
+        background.GetZaxis().SetTitle('95% CL cross section upper limit (pb)')
         background.Draw(DRAWOPTION)
 
-        zaxis = background.GetZaxis()
-        zaxis.SetTickLength(0.02)
-        palette = background.GetListOfFunctions().FindObject('palette')
-        palette.SetX2NDC(palette.GetX1NDC() + (palette.GetX2NDC() - palette.GetX1NDC()) * 0.7)
-        palette.SetTitleOffset(1.5)
-        palette.SetLabelSize(0.03)
+        canvas.Update()
 
         maxY = 0.
         for contour in contours[(0, 0)]:
@@ -782,130 +977,203 @@ def drawLimits(model, sourceName, plotsDir, pointFormat, titles, axisRange, xsec
         background.SetMinimum(minZ * 0.8)
         background.SetMaximum(maxZ * 0.8)
 
-    header = ROOT.TPaveText()
-    header.SetOption('')
-    header.SetX1NDC(0.13)
-    if ndim == 1:
-        header.SetX2NDC(0.9)
+        palette = background.GetListOfFunctions().FindObject('palette')
+        palette.SetX2NDC(palette.GetX1NDC() + (palette.GetX2NDC() - palette.GetX1NDC()) * 0.7)
+        palette.GetAxis().SetTitle(background.GetZaxis().GetTitle())
+
+    header = ROOT.TPad()
+    canvas.cd()
+    header.Draw()
+    header.cd()
+
+    if type(titles[0]) is not tuple:
+        titleLines = (titles[0],)
     else:
-        header.SetX2NDC(0.83)
-    header.SetY2NDC(0.9)
-    header.SetY1NDC(0.7)
-    header.ConvertNDCtoPad()
-    header.SetTextFont(62)
-    header.SetTextSize(0.03)
-    header.SetFillStyle(1001)
-    header.SetFillColor(ROOT.kWhite)
-    header.SetLineColor(ROOT.kBlack)
-    header.SetLineWidth(1)
-    header.SetBorderSize(1)
+        titleLines = titles[0]
+
+    nTitleLines = len(titleLines)
+    if ndim == 1:
+        nTotalLines = nTitleLines + 4.
+    else:
+        nTotalLines = nTitleLines + 3.
+        
+    x1 = canvas.GetLeftMargin()
+    y2 = 1. - canvas.GetTopMargin()
+    y1 = y2 - 0.045 * nTotalLines
+    x2 = 1. - canvas.GetRightMargin()
+    if ndim == 2:
+        x1 += 0.01
+        y2 -= 0.025
+        y1 -= 0.025
+
+    header.SetPad(x1, y1, x2, y2)
+    if ndim == 1:
+        header.SetFillStyle(1001)
+        headerBack = ROOT.TBox(0., 0., 1., 1.)
+        headerBack.SetLineWidth(1)
+        headerBack.SetLineColor(ROOT.kBlack)
+        headerBack.Draw()
+    else:
+        header.SetFillStyle(0)
+
+    textSize = 0.72 / (nTotalLines - 1.)
+
+    title = ROOT.TPaveText()
+    title.SetMargin(0.)
+    title.SetTextSize(textSize)
+    title.SetFillStyle(0)
+    title.SetBorderSize(0)
+    title.SetTextAlign(12)
+    title.SetX1NDC(0.)
+    title.SetX2NDC(1.)
+    title.SetY1NDC(1. - nTitleLines / nTotalLines)
+    title.SetY2NDC(1.)
+    y = 0.93 - 0.495 / nTitleLines
+    for line in titleLines:
+        title.AddText(0.02, y, line)
+        y -= 0.93 / nTitleLines
+
+    title.Draw()
+
+    legend = ROOT.TPaveText()
+    legend.SetMargin(0.)
+    legend.SetTextSize(textSize)
+    legend.SetFillStyle(0)
+    legend.SetBorderSize(0)
+    legend.SetTextAlign(12)
+    legend.SetX1NDC(0.)
+    legend.SetX2NDC(1.)
+    legend.SetY1NDC(0.)
+    legend.SetY2NDC(1. - nTitleLines / nTotalLines)
 
     if ndim == 1:
-        header.AddText(0.02, 0.84, titles[0])
+        y = 0.82
         text = '95%'
         if asymptotic: text += ' asymptotic'
-        text += ' CL_{s} cross section upper limits'
+        text += ' CL upper limits'
         if xsecScale != 1.:
             text += ' (BR=%.2f)' % xsecScale
-        header.AddText(0.02, 0.64, text)
+        legend.AddText(0.02, y, text)
 
-        line = header.AddLine(0.02, 0.48, 0.08, 0.48)
+        y = 0.61
+        line = legend.AddLine(0.02, y, 0.08, y)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kSolid)
         line.SetLineColor(obscol)
-        box = header.AddBox(0.046, 0.46, 0.054, 0.5)
+        box = legend.AddBox(0.046, y - 0.03, 0.054, y + 0.03)
+        box.SetFillStyle(1001)
         box.SetFillColor(obscol)
         box.SetLineWidth(0)
-        header.AddText(0.1, 0.44, 'Observed')
+        box.SetLineColor(obscol)
+        legend.AddText(0.1, y, 'Observed')
 
-        box = header.AddBox(0.02, 0.24, 0.08, 0.36)
+        y = 0.36
+        box = legend.AddBox(0.02, y - 0.06, 0.08, y + 0.06)
+        box.SetFillStyle(1001)
         box.SetFillColor(ROOT.kGreen)
         box.SetLineWidth(0)
-        line = header.AddLine(0.02, 0.3, 0.08, 0.3)
+        box.SetLineColor(ROOT.kGreen)
+        line = legend.AddLine(0.02, y, 0.08, y)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineWidth(2)
         line.SetLineColor(ROOT.kBlack)
-        header.AddText(0.1, 0.24, 'Expected (68%)')
+        legend.AddText(0.1, y, 'Expected #pm 1 #sigma')
 
-        box = header.AddBox(0.02, 0.06, 0.08, 0.18)
+        y = 0.11
+        box = legend.AddBox(0.02, y - 0.06, 0.08, y + 0.06)
+        box.SetFillStyle(1001)
         box.SetFillColor(ROOT.kYellow)
         box.SetLineWidth(0)
-        line = header.AddLine(0.02, 0.12, 0.08, 0.12)
+        box.SetLineColor(ROOT.kYellow)
+        line = legend.AddLine(0.02, y, 0.08, y)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineWidth(2)
         line.SetLineColor(ROOT.kBlack)
-        header.AddText(0.1, 0.04, 'Expected (95%)')
+        legend.AddText(0.1, y, 'Expected #pm 2 #sigma')
 
-        line = header.AddLine(0.52, 0.52, 0.58, 0.52)
+        y = 0.82
+        line = legend.AddLine(0.52, y + 0.06, 0.58, y + 0.06)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineColor(ROOT.kBlue)
-        line = header.AddLine(0.52, 0.48, 0.58, 0.48)
+        line = legend.AddLine(0.52, y, 0.58, y)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kSolid)
         line.SetLineColor(ROOT.kBlue)
-        line = header.AddLine(0.52, 0.44, 0.58, 0.44)
+        line = legend.AddLine(0.52, y - 0.06, 0.58, y - 0.06)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineColor(ROOT.kBlue)
-        header.AddText(0.6, 0.44, 'Theory #pm 1 #sigma')
+        legend.AddText(0.6, y, order + ' #pm 1 #sigma')
 
         if model == 'TChiwg':
-            line = header.AddLine(0.52, 0.34, 0.58, 0.34)
+            y = 0.58
+            line = legend.AddLine(0.52, y + 0.06, 0.58, y + 0.06)
             line.SetLineWidth(2)
             line.SetLineStyle(ROOT.kDashed)
             line.SetLineColor(ROOT.kOrange + 10)
-            line = header.AddLine(0.52, 0.3, 0.58, 0.3)
+            line = legend.AddLine(0.52, y, 0.58, y)
             line.SetLineWidth(2)
             line.SetLineStyle(ROOT.kSolid)
             line.SetLineColor(ROOT.kOrange + 10)
-            line = header.AddLine(0.52, 0.26, 0.58, 0.26)
+            line = legend.AddLine(0.52, y - 0.06, 0.58, y - 0.06)
             line.SetLineWidth(2)
             line.SetLineStyle(ROOT.kDashed)
             line.SetLineColor(ROOT.kOrange + 10)
-            header.AddText(0.6, 0.26, ' #times sin^{2}#theta_{W}')
+            legend.AddText(0.6, y, ' #times sin^{2}#theta_{W}')
 
     else:
-        header.AddText(0.02, 0.84, titles[0])
-        text = '95%'
-        if asymptotic: text += ' asymptotic'
-        text += ' CL_{s} exclusion'
+        y = 0.83
+        text = '%s exclusion' % order
         if xsecScale != 1.:
             text += ' (BR=%.2f)' % xsecScale
-        header.AddText(0.02, 0.58, text)
+        legend.AddText(0.02, y, text)
 
-        line = header.AddLine(0.02, 0.43, 0.08, 0.43)
+        y = 0.51
+        line = legend.AddLine(0.02, y + 0.06, 0.14, y + 0.06)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineColor(obscol)
-        line = header.AddLine(0.02, 0.39, 0.08, 0.39)
+        line = legend.AddLine(0.02, y, 0.14, y)
         line.SetLineWidth(4)
         line.SetLineStyle(ROOT.kSolid)
         line.SetLineColor(obscol)
-        line = header.AddLine(0.02, 0.35, 0.08, 0.35)
+        line = legend.AddLine(0.02, y - 0.06, 0.14, y - 0.06)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineColor(obscol)
-        header.AddText(0.1, 0.33, 'Observed #pm 1 #sigma_{theory}')
+        legend.AddText(0.16, y - 0.02, 'Observed #pm 1 #sigma (theory)')
 
-        line = header.AddLine(0.02, 0.18, 0.08, 0.18)
+        y = 0.18
+        line = legend.AddLine(0.02, y + 0.06, 0.14, y + 0.06)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineColor(expcol)
-        line = header.AddLine(0.02, 0.14, 0.08, 0.14)
+        line = legend.AddLine(0.02, y, 0.14, y)
         line.SetLineWidth(4)
         line.SetLineStyle(ROOT.kSolid)
         line.SetLineColor(expcol)
-        line = header.AddLine(0.02, 0.1, 0.08, 0.1)
+        line = legend.AddLine(0.02, y - 0.06, 0.14, y - 0.06)
         line.SetLineWidth(2)
         line.SetLineStyle(ROOT.kDashed)
         line.SetLineColor(expcol)
-        header.AddText(0.1, 0.08, 'Expected #pm 1 #sigma_{experiment}')
+        legend.AddText(0.16, y - 0.02, 'Expected #pm 1 #sigma (exp.)')
 
-    header.Draw()
-    header.SetDrawOption(' ')
-    
-    canvas.Print(plotsDir + '/' + model + '_exclusion.pdf')
+    legend.Draw()
+
+    canvas.cd()
+
+    cmsPave.SetX1NDC(canvas.GetLeftMargin())
+    cmsPave.SetX2NDC(1.)
+    cmsPave.SetY1NDC(1. - canvas.GetTopMargin())
+    cmsPave.SetY2NDC(1.)
+    cmsPave.SetTextAlign(12)
+
+    lumiPave.Draw()
+    cmsPave.Draw()
+    canvas.Print(plotsDir + '/' + model + '_exclusion' + imgform)
+
+    header.Delete()
         
 
 if __name__ == '__main__':
@@ -928,29 +1196,32 @@ if __name__ == '__main__':
 
     plotsDir = args[1]
 
+    order = 'NLO+NLL'
+
     if model == 'T5wg':
         form = 'T5wg_([0-9]+)_([0-9]+)'
-        titles = ('pp #rightarrow #tilde{g} #tilde{g}, #tilde{g} #rightarrow q #bar{q} #tilde{#chi}^{0/#pm}, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{g}} (GeV)', 'M_{#tilde{#chi}} (GeV)')
+#        titles = (('pp #rightarrow #tilde{g}#kern[0.2]{#tilde{g}}, #tilde{g} #rightarrow q#kern[0.2]{#bar{q}}#kern[0.2]{#tilde{#chi}^{0/#pm}}', '#tilde{#chi}^{#pm} #rightarrow W^{#pm}#tilde{G}, #tilde{#chi}^{0} #rightarrow #gamma#tilde{G}'), 'm_{#tilde{g}} (GeV)', 'm_{#tilde{#chi}} (GeV)')
+        titles = ('pp #rightarrow #tilde{g}#kern[0.2]{#tilde{g}}, #tilde{g} #rightarrow q#kern[0.2]{#bar{q}}#kern[0.2]{#tilde{#chi}^{0/#pm}}, #tilde{#chi}^{#pm} #rightarrow W^{#pm}#tilde{G}, #tilde{#chi}^{0} #rightarrow #gamma#tilde{G}', 'm_{#tilde{g}} (GeV)', 'm_{#tilde{#chi}} (GeV)')
         axisRange = (1.e-3, 5.e-2)
     elif model == 'TChiwg':
         form = 'TChiwg_([0-9]+)'
-        titles = ('pp #rightarrow #tilde{#chi}^{#pm} #tilde{#chi}^{0}, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{#chi}} (GeV)')
+        titles = ('pp #rightarrow #tilde{#chi}^{#pm}#kern[0.2]{#tilde{#chi}^{0}}, #tilde{#chi}^{#pm} #rightarrow W^{#pm}#tilde{G}, #tilde{#chi}^{0} #rightarrow #gamma#tilde{G}', 'm_{#tilde{#chi}} (GeV)')
         axisRange = None
     elif model == 'T5wg+TChiwg':
         form = 'T5wg\\+TChiwg_([0-9]+)_([0-9]+)'
-        titles = ('Simplified GMSB, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma NLO+NLL', 'M_{#tilde{g}} (GeV)', 'M_{#tilde{#chi}} (GeV)')
+        titles = ('Simplified GMSB, #tilde{#chi}^{#pm} #rightarrow W^{#pm}, #tilde{#chi}^{0} #rightarrow #gamma', 'm_{#tilde{g}} (GeV)', 'm_{#tilde{#chi}} (GeV)')
         axisRange = None
     elif model == 'Spectra_gW':
         form = 'Spectra_gW_M3_([0-9]+)_M2_([0-9]+)'
-        titles = ('GGM Wino-like NLSP NLO+NLL', 'gluino mass (GeV)', 'wino mass (GeV)')
+        titles = ('GGM Wino-like NLSP', 'gluino mass (GeV)', 'wino mass (GeV)')
         axisRange = (1.e-2, 2.e-1)
     elif model == 'Spectra_gW_nc':
         form = 'Spectra_gW_nc_M3_([0-9]+)_M2_([0-9]+)'
-        titles = ('GGM Wino-like NLSP EWK only NLO+NLL', 'gluino mass (GeV)', 'wino mass (GeV)')
+        titles = ('GGM Wino-like NLSP EWK only', 'gluino mass (GeV)', 'wino mass (GeV)')
         axisRange = None
     elif model == 'Spectra_gW_gg':
         form = 'Spectra_gW_gg_M3_([0-9]+)_M2_([0-9]+)'
-        titles = ('GGM Wino-like NLSP strong only NLO+NLL', 'gluino mass (GeV)', 'wino mass (GeV)')
+        titles = ('GGM Wino-like NLSP strong only', 'gluino mass (GeV)', 'wino mass (GeV)')
         axisRange = None
 
-    drawLimits(model, sourceName, plotsDir, form, titles, axisRange, xsecScale = options.xsecScale, outputName = options.outputName)
+    drawLimits(model, sourceName, plotsDir, form, titles, order, axisRange, xsecScale = options.xsecScale, outputName = options.outputName)
